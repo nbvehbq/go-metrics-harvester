@@ -94,6 +94,7 @@ func TestServer_updateHandler(t *testing.T) {
 			srv.updateHandler(w, request)
 
 			res := w.Result()
+			res.Body.Close()
 			assert.Equal(t, test.want.code, res.StatusCode)
 			assert.Equal(t, test.want.contentType, res.Header.Get("Content-Type"))
 		})
