@@ -128,6 +128,8 @@ func makePostRequest(m metric.Metric) error {
 		return err
 	}
 
+	defer res.Body.Close()
+
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("status: %d", res.StatusCode)
 	}
