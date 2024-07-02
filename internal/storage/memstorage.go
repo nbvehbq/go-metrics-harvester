@@ -22,6 +22,7 @@ func (m *MemStorage) Set(value metric.Metric) metric.Metric {
 	m.mu.Lock()
 	v, ok := m.storage[value.Name]
 	v.Type = value.Type
+	v.Name = value.Name
 
 	switch value.Type {
 	case "gauge":
@@ -45,4 +46,13 @@ func (m *MemStorage) Set(value metric.Metric) metric.Metric {
 func (m *MemStorage) Get(key string) (metric.Metric, bool) {
 	v, ok := m.storage[key]
 	return v, ok
+}
+
+func (m *MemStorage) List() ([]metric.Metric) {
+	var list []metric.Metric
+	for _, v := range m.storage {
+		list = append(list, v)
+	}
+
+	return list
 }

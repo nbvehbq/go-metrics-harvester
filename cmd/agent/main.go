@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"log"
@@ -10,6 +9,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/go-resty/resty/v2"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
 	"golang.org/x/sync/errgroup"
 )
@@ -89,12 +89,14 @@ func requestMetrics(m *metric.Metrics) {
 }
 
 func publishMetrics(runner *errgroup.Group, m *metric.Metrics) error {
+	client := resty.New()
+
 	m.Mu.Lock()
 	for _, v := range m.Metrics {
 		v := v
 		runner.Go(func() error {
 			if v.Value != nil {
-				if err := makePostRequest(v); err != nil {
+				if err := makePostRequest(client, v); err != nil {
 					log.Println("request error:", err)
 					return err
 				}
@@ -109,29 +111,30 @@ func publishMetrics(runner *errgroup.Group, m *metric.Metrics) error {
 	return nil
 }
 
-func makePostRequest(m metric.Metric) error {
-	url := fmt.Sprintf("http://localhost:8080/update/%s/%s/%f", m.Type, m.Name, m.Value)
-	if m.Type == metric.Counter {
-		url = fmt.Sprintf("http://localhost:8080/update/%s/%s/%d", m.Type, m.Name, m.Value)
-	}
+func makePostRequest(client *resty.Client, m metric.Metric) error {
+	var value string
+		switch m.Type {
+		case metric.Counter:
+			value = fmt.Sprintf("%d", m.Value)
+		case metric.Gauge:
+			value = fmt.Sprintf("%f", m.Value)
+		}
 
-	r, err := http.NewRequest("POST", url, bytes.NewBuffer([]byte("")))
+	res, err := client.R().
+	SetHeader("Content-Type", "text/plain").
+	SetPathParams(map[string]string{
+		"type": m.Type,
+		"name": m.Name,
+		"value": value,
+	}).
+	Post("http://localhost:8080/update/{type}/{name}/{value}")
+
 	if err != nil {
 		return err
 	}
 
-	r.Header.Add("Content-Type", "text/plain")
-
-	client := &http.Client{}
-	res, err := client.Do(r)
-	if err != nil {
-		return err
-	}
-
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("status: %d", res.StatusCode)
+	if res.StatusCode() != http.StatusOK {
+		return fmt.Errorf("status: %d", res.StatusCode())
 	}
 
 	return nil

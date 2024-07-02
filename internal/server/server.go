@@ -2,32 +2,36 @@ package server
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"net/http"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
 )
 
 type Repository interface {
 	Set(value metric.Metric) metric.Metric
 	Get(key string) (metric.Metric, bool)
+	List() []metric.Metric
 }
 
 type Server struct {
 	srv     *http.Server
-	Storage Repository
+	storage Repository
 }
 
 func NewServer(storage Repository) *Server {
-	mux := http.NewServeMux()
+	mux := chi.NewRouter()
 
 	s := &Server{
-		srv: &http.Server{Addr: `:8080`, Handler: mux },
-		Storage: storage,
+		srv:     &http.Server{Addr: `:8080`, Handler: mux},
+		storage: storage,
 	}
 
-	mux.HandleFunc(`/update/`, s.updateHandler)
+	mux.Get("/", s.listMetricHandler)
+	mux.Get("/value/{type}/{name}", s.getMetricHandler)
+	mux.Post(`/update/{type}/{name}/{value}`, s.updateHandler)
 
 	return s
 }
@@ -44,34 +48,93 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return s.srv.Shutdown(ctx)
 }
 
-func (s *Server) updateHandler(res http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodPost {
-		http.Error(res, "not allowed", http.StatusMethodNotAllowed)
+func (s *Server) listMetricHandler(res http.ResponseWriter, req *http.Request) {
+	html := `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Metrics list</title>
+</head>
+<body>
+  <ol>
+    %s
+  </ol>
+</body>
+</html>
+	`
+
+	var li []string
+	for _, v := range s.storage.List() {
+		var value string
+		switch v.Type {
+		case metric.Counter:
+			value = fmt.Sprintf("%d", v.Value)
+		case metric.Gauge:
+			value = fmt.Sprintf("%f", v.Value)
+		}
+		li = append(li, fmt.Sprintf("<li>%s: %s</li>", v.Name, value))
+	}
+
+	res.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(res, html, strings.Join(li, "\n"))
+}
+
+func (s *Server) getMetricHandler(res http.ResponseWriter, req *http.Request) {
+	mtype := chi.URLParam(req, "type")
+	mname := chi.URLParam(req, "name")
+
+	_, ok := metric.AllowedMetricName[mtype]
+	if !ok {
+		http.Error(res, "not found", http.StatusNotFound)
 		return
 	}
 
-	// check params
-	parts := strings.Split(req.URL.Path, "/")
-	if len(parts) != 5 {
+	m, ok := s.storage.Get(mname)
+	if !ok {
+		http.Error(res, "not found", http.StatusNotFound)
+		return
+	}
+
+	switch v := m.Value.(type) {
+	case int64:
+		res.Write([]byte(fmt.Sprintf("%d", v)))
+	case float64:
+		res.Write([]byte(fmt.Sprintf("%f", v)))
+	default:
+		res.Write([]byte(fmt.Sprintf("%v", v)))
+	}
+
+	res.Header().Set("Content-Type", "text/plain")
+	res.WriteHeader(http.StatusOK)
+	res.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) updateHandler(res http.ResponseWriter, req *http.Request) {
+	mtype := chi.URLParam(req, "type")
+	mname := chi.URLParam(req, "name")
+	mvalue := chi.URLParam(req, "value")
+
+	//check metric name
+	if mname == "" {
 		http.Error(res, "not found", http.StatusNotFound)
 		return
 	}
 
 	// check metric type
-	validate, ok := metric.AllowedMetricName[parts[2]]
+	validate, ok := metric.AllowedMetricName[mtype]
 	if !ok {
 		http.Error(res, "bad request (type)", http.StatusBadRequest)
 		return
 	}
 
 	// check metric value
-	if !validate(parts[4]) {
-		log.Println(parts[1:])
+	if !validate(mvalue) {
 		http.Error(res, "bad request (value)", http.StatusBadRequest)
 		return
 	}
 
-	s.Storage.Set(metric.Metric{Name: parts[3], Type: parts[2], Value: parts[4]})
+	s.storage.Set(metric.Metric{Name: mname, Type: mtype, Value: mvalue})
 
 	res.Header().Set("Content-Type", "text/plain")
 	res.WriteHeader(http.StatusOK)
