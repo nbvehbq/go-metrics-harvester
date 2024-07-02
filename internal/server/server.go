@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -69,7 +70,7 @@ func (s *Server) listMetricHandler(res http.ResponseWriter, req *http.Request) {
 		var value string
 		switch v.Type {
 		case metric.Counter:
-			value = fmt.Sprintf("%d", v.Value)
+			value = strconv.FormatFloat(v.Value.(float64), 'f', -1, 64)
 		case metric.Gauge:
 			value = fmt.Sprintf("%f", v.Value)
 		}
@@ -100,7 +101,7 @@ func (s *Server) getMetricHandler(res http.ResponseWriter, req *http.Request) {
 	case int64:
 		res.Write([]byte(fmt.Sprintf("%d", v)))
 	case float64:
-		res.Write([]byte(fmt.Sprintf("%f", v)))
+		res.Write([]byte(strconv.FormatFloat(v, 'f', -1, 64)))
 	default:
 		res.Write([]byte(fmt.Sprintf("%v", v)))
 	}
