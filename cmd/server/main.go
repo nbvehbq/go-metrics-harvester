@@ -7,13 +7,19 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nbvehbq/go-metrics-harvester/internal/config"
 	"github.com/nbvehbq/go-metrics-harvester/internal/server"
 	"github.com/nbvehbq/go-metrics-harvester/internal/storage"
 )
 
 func main() {
+	cfg, err := config.NewConfig()
+	if err != nil {
+		panic(err)
+	}
+
 	db := storage.NewMemStorage()
-	server := server.NewServer(db)
+	server := server.NewServer(db, cfg.Server)
 
 	go func() {
 		stop := make(chan os.Signal, 1)
