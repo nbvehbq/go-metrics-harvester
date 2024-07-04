@@ -3,11 +3,13 @@ package server
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/nbvehbq/go-metrics-harvester/internal/config"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
 )
 
@@ -22,11 +24,11 @@ type Server struct {
 	storage Repository
 }
 
-func NewServer(storage Repository) *Server {
+func NewServer(storage Repository, cfg *config.Server) *Server {
 	mux := chi.NewRouter()
 
 	s := &Server{
-		srv:     &http.Server{Addr: `:8080`, Handler: mux},
+		srv:     &http.Server{Addr: cfg.DSN, Handler: mux},
 		storage: storage,
 	}
 
@@ -38,6 +40,7 @@ func NewServer(storage Repository) *Server {
 }
 
 func (s *Server) Run() error {
+	log.Printf("Server started.")
 	if err := s.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}
@@ -46,6 +49,7 @@ func (s *Server) Run() error {
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
+	log.Println("Server stoped.")
 	return s.srv.Shutdown(ctx)
 }
 
@@ -107,7 +111,6 @@ func (s *Server) getMetricHandler(res http.ResponseWriter, req *http.Request) {
 	}
 
 	res.Header().Set("Content-Type", "text/plain")
-	res.WriteHeader(http.StatusOK)
 	res.WriteHeader(http.StatusOK)
 }
 
