@@ -10,18 +10,17 @@ import (
 	"time"
 
 	"github.com/go-resty/resty/v2"
-	"github.com/nbvehbq/go-metrics-harvester/internal/config"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
 	"golang.org/x/sync/errgroup"
 )
 
 type Agent struct {
-	cfg    *config.Agent
+	cfg    *Config
 	runner *errgroup.Group
 	client *resty.Client
 }
 
-func NewAgent(r *errgroup.Group, cfg *config.Agent) *Agent {
+func NewAgent(r *errgroup.Group, cfg *Config) *Agent {
 	c := resty.New()
 	return &Agent{runner: r, cfg: cfg, client: c}
 }
@@ -137,7 +136,7 @@ func (a *Agent) makePostRequest(m metric.Metric) error {
 			"name":  m.Name,
 			"value": value,
 		}).
-		Post(fmt.Sprintf("%s/update/{type}/{name}/{value}", a.cfg.DSN))
+		Post(fmt.Sprintf("%s/update/{type}/{name}/{value}", a.cfg.Address))
 
 	if err != nil {
 		return err

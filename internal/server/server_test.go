@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/nbvehbq/go-metrics-harvester/internal/config"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
 	"github.com/stretchr/testify/assert"
 )
@@ -138,7 +137,7 @@ func TestServer_updateHandler(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 
-			srv := NewServer(&mockStorage{}, &config.Server{})
+			srv := NewServer(&mockStorage{}, &Config{})
 			srv.updateHandler(w, test.req)
 
 			res := w.Result()
@@ -208,7 +207,7 @@ func TestServer_getMetricHandler(t *testing.T) {
 			storage := &mockStorage{}
 			storage.Set(test.metric)
 
-			srv := NewServer(storage, &config.Server{})
+			srv := NewServer(storage, &Config{})
 			srv.getMetricHandler(w, test.req)
 
 			res := w.Result()
@@ -226,8 +225,8 @@ func TestServer_listMetricHandler(t *testing.T) {
 		contentType string
 	}
 	tests := []struct {
-		name   string
-		want   want
+		name string
+		want want
 	}{
 		{
 			name: "list metrics",
@@ -243,7 +242,7 @@ func TestServer_listMetricHandler(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			w := httptest.NewRecorder()
 
-			srv := NewServer(&mockStorage{}, &config.Server{})
+			srv := NewServer(&mockStorage{}, &Config{})
 			srv.listMetricHandler(w, req)
 
 			res := w.Result()

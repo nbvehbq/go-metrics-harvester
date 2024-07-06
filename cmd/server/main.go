@@ -2,24 +2,25 @@ package main
 
 import (
 	"context"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/nbvehbq/go-metrics-harvester/internal/config"
 	"github.com/nbvehbq/go-metrics-harvester/internal/server"
 	"github.com/nbvehbq/go-metrics-harvester/internal/storage"
 )
 
 func main() {
-	cfg, err := config.NewConfig()
+	cfg, err := server.NewConfig()
+	log.Println(cfg)
 	if err != nil {
 		panic(err)
 	}
 
 	db := storage.NewMemStorage()
-	server := server.NewServer(db, cfg.Server)
+	server := server.NewServer(db, cfg)
 
 	go func() {
 		stop := make(chan os.Signal, 1)

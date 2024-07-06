@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/nbvehbq/go-metrics-harvester/internal/config"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
 )
 
@@ -24,11 +23,11 @@ type Server struct {
 	storage Repository
 }
 
-func NewServer(storage Repository, cfg *config.Server) *Server {
+func NewServer(storage Repository, cfg *Config) *Server {
 	mux := chi.NewRouter()
 
 	s := &Server{
-		srv:     &http.Server{Addr: cfg.DSN, Handler: mux},
+		srv:     &http.Server{Addr: cfg.Address, Handler: mux},
 		storage: storage,
 	}
 

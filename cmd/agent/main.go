@@ -8,12 +8,11 @@ import (
 	"syscall"
 
 	"github.com/nbvehbq/go-metrics-harvester/internal/agent"
-	"github.com/nbvehbq/go-metrics-harvester/internal/config"
 	"golang.org/x/sync/errgroup"
 )
 
 func main() {
-	cfg, err := config.NewConfig()
+	cfg, err := agent.NewConfig()
 	if err != nil {
 		panic(err)
 	}
@@ -21,7 +20,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	runner, ctx := errgroup.WithContext(ctx)
 
-	agent := agent.NewAgent(runner, cfg.Agent)
+	agent := agent.NewAgent(runner, cfg)
 	agent.Run(ctx)
 
 	stop := make(chan os.Signal, 1)
