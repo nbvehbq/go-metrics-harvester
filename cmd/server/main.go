@@ -16,7 +16,7 @@ func main() {
 	cfg, err := server.NewConfig()
 	log.Println(cfg)
 	if err != nil {
-		panic(err)
+		log.Fatal(err, "Load config")
 	}
 
 	db := storage.NewMemStorage()

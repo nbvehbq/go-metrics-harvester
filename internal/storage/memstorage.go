@@ -25,10 +25,10 @@ func (m *MemStorage) Set(value metric.Metric) metric.Metric {
 	v.Name = value.Name
 
 	switch value.Type {
-	case "gauge":
+	case metric.Gauge:
 		f, _ := strconv.ParseFloat(value.Value.(string), 64)
 		v.Value = f
-	case "counter":
+	case metric.Counter:
 		i, _ := strconv.Atoi(value.Value.(string))
 		if ok {
 			v.Value = v.Value.(int64) + int64(i)
@@ -48,7 +48,7 @@ func (m *MemStorage) Get(key string) (metric.Metric, bool) {
 	return v, ok
 }
 
-func (m *MemStorage) List() ([]metric.Metric) {
+func (m *MemStorage) List() []metric.Metric {
 	var list []metric.Metric
 	for _, v := range m.storage {
 		list = append(list, v)

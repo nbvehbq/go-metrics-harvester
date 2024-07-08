@@ -52,8 +52,6 @@ func (a *Agent) Run(ctx context.Context) {
 			}
 		}
 	})
-
-	// a.runner.Wait()
 }
 
 func requestMetrics(m *metric.Metrics) {
@@ -100,23 +98,22 @@ func requestMetrics(m *metric.Metrics) {
 
 func (a *Agent) publishMetrics(m *metric.Metrics) error {
 	m.Mu.Lock()
-	defer m.Mu.Unlock()
+	defer func() {
+		m.Mu.Unlock()
+		log.Println("Metrics published")
+	}()
 
 	for _, v := range m.Metrics {
 		v := v
 		a.runner.Go(func() error {
-			if v.Value != nil {
-				if err := a.makePostRequest(v); err != nil {
-					log.Println("request error:", err)
-					return nil
-				}
+			if err := a.makePostRequest(v); err != nil {
+				log.Println("request error:", err)
 				return nil
 			}
 			return nil
 		})
 	}
 
-	log.Println("Metrics published")
 	return nil
 }
 

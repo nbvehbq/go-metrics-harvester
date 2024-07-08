@@ -14,7 +14,7 @@ import (
 func main() {
 	cfg, err := agent.NewConfig()
 	if err != nil {
-		panic(err)
+		log.Fatal(err, "Load config error")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

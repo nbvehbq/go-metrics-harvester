@@ -68,8 +68,9 @@ func (s *Server) listMetricHandler(res http.ResponseWriter, req *http.Request) {
 </html>
 	`
 
-	var li []string
-	for _, v := range s.storage.List() {
+	list := s.storage.List()
+	li := make([]string, len(list))
+	for i, v := range list {
 		var value string
 		switch v.Type {
 		case metric.Counter:
@@ -77,7 +78,7 @@ func (s *Server) listMetricHandler(res http.ResponseWriter, req *http.Request) {
 		case metric.Gauge:
 			value = fmt.Sprintf("%f", v.Value)
 		}
-		li = append(li, fmt.Sprintf("<li>%s: %s</li>", v.Name, value))
+		li[i] = fmt.Sprintf("<li>%s: %s</li>", v.Name, value)
 	}
 
 	res.Header().Set("Content-Type", "text/html; charset=utf-8")
