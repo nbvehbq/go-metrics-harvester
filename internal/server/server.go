@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
 )
 
@@ -31,9 +32,9 @@ func NewServer(storage Repository, cfg *Config) *Server {
 		storage: storage,
 	}
 
-	mux.Get("/", s.listMetricHandler)
-	mux.Get("/value/{type}/{name}", s.getMetricHandler)
-	mux.Post(`/update/{type}/{name}/{value}`, s.updateHandler)
+	mux.Get("/", logger.WithLogging(s.listMetricHandler))
+	mux.Get("/value/{type}/{name}", logger.WithLogging(s.getMetricHandler))
+	mux.Post(`/update/{type}/{name}/{value}`, logger.WithLogging(s.updateHandler))
 
 	return s
 }

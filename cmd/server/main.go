@@ -8,15 +8,20 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/server"
 	"github.com/nbvehbq/go-metrics-harvester/internal/storage"
 )
 
 func main() {
 	cfg, err := server.NewConfig()
-	log.Println(cfg)
+
 	if err != nil {
 		log.Fatal(err, "Load config")
+	}
+
+	if err := logger.Initialize(cfg.LogLevel); err != nil {
+		log.Fatal(err, "initialize logger")
 	}
 
 	db := storage.NewMemStorage()

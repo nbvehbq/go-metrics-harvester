@@ -1,0 +1,27 @@
+version: "3"  
+
+tasks:
+  default:
+    cmds:
+      - task: server
+
+  server:
+    desc: "Start metric server"
+    cmds:
+      - go run ./cmd/server/main.go
+
+  agent:
+    desc: "Start agent"
+    cmds:
+      - go run ./cmd/agent/main.go
+
+  build:
+    desc: "Build binaries"
+    cmds:
+      - go build -o ./cmd/server/server ./cmd/server/main.go
+      - go build -o ./cmd/agent/agent ./cmd/agent/main.go
+
+  clear:
+    desc: "Clear building artifacts"
+    cmds:
+      - rm ./cmd/server/server ./cmd/agent/agent

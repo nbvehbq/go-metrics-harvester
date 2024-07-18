@@ -8,19 +8,25 @@ import (
 )
 
 const (
-	defaultAddress = "localhost:8080"
+	defaultAddress  = "localhost:8080"
+	defaultLogLevel = "info"
+	logUsage        = "log level supported levels (info, warn, debug, error, panic, fatal)"
+	addresUsage     = "server address eg localhost:8080"
 )
 
 type Config struct {
-	Address string `env:"ADDRESS"`
+	Address  string `env:"ADDRESS"`
+	LogLevel string `env:"LOG_LEVEL"`
 }
 
 func NewConfig() (*Config, error) {
 	cfg := &Config{
-		Address: defaultAddress,
+		Address:  defaultAddress,
+		LogLevel: defaultLogLevel,
 	}
 
-	flag.StringVar(&cfg.Address, "a", defaultAddress, "server address eg localhost:8080")
+	flag.StringVar(&cfg.Address, "a", defaultAddress, addresUsage)
+	flag.StringVar(&cfg.LogLevel, "l", defaultLogLevel, logUsage)
 	flag.Parse()
 
 	if err := env.Parse(cfg); err != nil {
