@@ -1,12 +1,12 @@
 package server
 
 import (
-	"context"
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
 	"github.com/stretchr/testify/assert"
 )
@@ -15,14 +15,13 @@ type mockStorage struct {
 	st []metric.Metric
 }
 
-func (m *mockStorage) Set(value metric.Metric) metric.Metric {
+func (m *mockStorage) Set(value metric.Metric) {
 	m.st = append(m.st, value)
-	return value
 }
 
 func (m *mockStorage) Get(key string) (metric.Metric, bool) {
 	for _, v := range m.st {
-		if v.Name == key {
+		if v.ID == key {
 			return v, true
 		}
 	}
@@ -34,13 +33,8 @@ func (m *mockStorage) List() []metric.Metric {
 	return m.st
 }
 
-func addParams(r *http.Request, params map[string]string) *http.Request {
-	ctx := chi.NewRouteContext()
-	for k, v := range params {
-		ctx.URLParams.Add(k, v)
-	}
-
-	return r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, ctx))
+func intPtr(v int64) *int64 {
+	return &v
 }
 
 func TestServer_updateHandler(t *testing.T) {
@@ -51,94 +45,91 @@ func TestServer_updateHandler(t *testing.T) {
 	}
 	tests := []struct {
 		name string
+		body []byte
 		want want
-		req  *http.Request
 	}{
 		{
 			name: "counter test",
 			want: want{
 				code:        200,
 				response:    `{"status":"ok"}`,
-				contentType: "text/plain",
+				contentType: "application/json",
 			},
-			req: addParams(httptest.NewRequest(http.MethodPost, "/update/counter/test/1", nil), map[string]string{
-				"type":  "counter",
-				"name":  "test",
-				"value": "1",
-			}),
+			body: []byte(`{"type":"counter","id":"test","delta":1}`),
 		},
 		{
 			name: "gauge test",
 			want: want{
 				code:        200,
 				response:    `{"status":"ok"}`,
-				contentType: "text/plain",
+				contentType: "application/json",
 			},
-			req: addParams(httptest.NewRequest(http.MethodPost, "/update/{type}/{name}/{value}", nil), map[string]string{
+			body: []byte(`{
 				"type":  "gauge",
-				"name":  "test",
-				"value": "2.34",
-			}),
+				"id":  "test",
+				"value": 2.34
+			}`),
 		},
 		{
 			name: "empty type",
 			want: want{
 				code:        400,
 				response:    `{"status":"ok"}`,
-				contentType: "text/plain; charset=utf-8",
+				contentType: "application/json",
 			},
-			req: addParams(httptest.NewRequest(http.MethodPost, "/update/{type}/{name}/{value}", nil), map[string]string{
+			body: []byte(`{
 				"type":  "",
-				"name":  "test",
-				"value": "2.34",
-			}),
+				"id":  "test",
+				"value": 2.34
+			}`),
 		},
 		{
 			name: "empty metric name",
 			want: want{
 				code:        404,
 				response:    `{"status":"ok"}`,
-				contentType: "text/plain; charset=utf-8",
+				contentType: "application/json",
 			},
-			req: addParams(httptest.NewRequest(http.MethodPost, "/update/{type}/{name}/{value}", nil), map[string]string{
+			body: []byte(`{
 				"type":  "gauge",
-				"name":  "",
-				"value": "1",
-			}),
+				"id":  "",
+				"value": 1
+			}`),
 		},
 		{
 			name: "unvalid counter",
 			want: want{
 				code:        400,
 				response:    `{"status":"ok"}`,
-				contentType: "text/plain; charset=utf-8",
+				contentType: "application/json",
 			},
-			req: addParams(httptest.NewRequest(http.MethodPost, "/update/{type}/{name}/{value}", nil), map[string]string{
+			body: []byte(`{
 				"type":  "counter",
-				"name":  "test",
-				"value": "3.14",
-			}),
+				"id":  "test",
+				"delta": 3.14
+			}`),
 		},
 		{
 			name: "unvalid gauge",
 			want: want{
 				code:        400,
 				response:    `{"status":"ok"}`,
-				contentType: "text/plain; charset=utf-8",
+				contentType: "application/json",
 			},
-			req: addParams(httptest.NewRequest(http.MethodPost, "/update/{type}/{name}/{value}", nil), map[string]string{
+			body: []byte(`{
 				"type":  "gauge",
 				"name":  "test",
-				"value": "fail",
-			}),
+				"value": "fail"
+			}`),
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 
+			req := httptest.NewRequest(http.MethodPost, "/value", bytes.NewBuffer(test.body))
 			srv := NewServer(&mockStorage{}, &Config{})
-			srv.updateHandler(w, test.req)
+			srv.updateHandlerJSON(w, req)
 
 			res := w.Result()
 			res.Body.Close()
@@ -153,11 +144,11 @@ func TestServer_getMetricHandler(t *testing.T) {
 		code        int
 		response    string
 		contentType string
+		storage     *metric.Metric
 	}
 	tests := []struct {
 		name   string
 		want   want
-		req    *http.Request
 		metric metric.Metric
 	}{
 		{
@@ -165,50 +156,49 @@ func TestServer_getMetricHandler(t *testing.T) {
 			want: want{
 				code:        404,
 				response:    `{"status":"ok"}`,
-				contentType: "text/plain; charset=utf-8",
+				contentType: "application/json",
+				storage:     &metric.Metric{ID: "test", MType: metric.Counter, Delta: intPtr(42)},
 			},
-			req: addParams(httptest.NewRequest(http.MethodGet, "/value/{type}/{name}", nil), map[string]string{
-				"type": "histogram",
-				"name": "test",
-			}),
-			metric: metric.Metric{Name: "test", Type: metric.Counter, Value: 42},
+			metric: metric.Metric{ID: "test", MType: metric.Gauge, Delta: intPtr(42)},
 		},
 		{
 			name: "epsent metric",
 			want: want{
 				code:        404,
 				response:    `{"status":"ok"}`,
-				contentType: "text/plain; charset=utf-8",
+				contentType: "application/json",
+				storage:     nil,
 			},
-			req: addParams(httptest.NewRequest(http.MethodGet, "/value/{type}/{name}", nil), map[string]string{
-				"type": "counter",
-				"name": "test2",
-			}),
-			metric: metric.Metric{Name: "test", Type: metric.Counter, Value: 42},
+			metric: metric.Metric{ID: "test", MType: metric.Counter, Delta: intPtr(42)},
 		},
 		{
 			name: "return metric",
 			want: want{
 				code:        200,
 				response:    `{"status":"ok"}`,
-				contentType: "text/plain; charset=utf-8",
+				contentType: "application/json",
+				storage:     &metric.Metric{ID: "test3", MType: metric.Counter, Delta: intPtr(42)},
 			},
-			req: addParams(httptest.NewRequest(http.MethodGet, "/value/{type}/{name}", nil), map[string]string{
-				"type": "counter",
-				"name": "test3",
-			}),
-			metric: metric.Metric{Name: "test3", Type: metric.Counter, Value: 42},
+			metric: metric.Metric{ID: "test3", MType: metric.Counter, Delta: intPtr(42)},
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			var body bytes.Buffer
+			err := json.NewEncoder(&body).Encode(test.metric)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest(http.MethodPost, "/value", &body)
 			w := httptest.NewRecorder()
 
 			storage := &mockStorage{}
-			storage.Set(test.metric)
+			if test.want.storage != nil {
+				storage.Set(*test.want.storage)
+			}
 
 			srv := NewServer(storage, &Config{})
-			srv.getMetricHandler(w, test.req)
+			srv.getMetricHandlerJSON(w, req)
 
 			res := w.Result()
 			res.Body.Close()
