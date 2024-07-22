@@ -1,7 +1,10 @@
 package agent
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -11,6 +14,7 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
+	"github.com/pkg/errors"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 )
@@ -127,13 +131,25 @@ func (a *Agent) publishMetrics(m *metric.Metrics) error {
 }
 
 func (a *Agent) makePostRequest(m metric.Metric) error {
+	buf, err := json.Marshal(m)
+	if err != nil {
+		return errors.Wrap(err, "marshal")
+	}
+
+	buf, err = compress(buf)
+	if err != nil {
+		return errors.Wrap(err, "compress")
+	}
+
 	res, err := a.client.R().
 		SetHeader("Content-Type", "application/json").
-		SetBody(&m).
+		SetHeader("Accept-Encoding", "gzip").
+		SetHeader("Content-Encoding", "gzip").
+		SetBody(buf).
 		Post(fmt.Sprintf("%s/update/", a.cfg.Address))
 
 	if err != nil {
-		return err
+		return errors.Wrap(err, "resty post")
 	}
 
 	if res.StatusCode() != http.StatusOK {
@@ -141,4 +157,21 @@ func (a *Agent) makePostRequest(m metric.Metric) error {
 	}
 
 	return nil
+}
+
+func compress(data []byte) ([]byte, error) {
+	var b bytes.Buffer
+	w := gzip.NewWriter(&b)
+
+	_, err := w.Write(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed write data to buffer: %v", err)
+	}
+
+	err = w.Close()
+	if err != nil {
+		return nil, fmt.Errorf("failed compress data: %v", err)
+	}
+
+	return b.Bytes(), nil
 }

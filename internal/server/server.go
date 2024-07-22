@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/nbvehbq/go-metrics-harvester/internal/compress"
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
 )
@@ -32,9 +33,9 @@ func NewServer(storage Repository, cfg *Config) *Server {
 		storage: storage,
 	}
 
-	mux.Get("/", logger.WithLogging(s.listMetricHandler))
-	mux.Post(`/update/`, logger.WithLogging(s.updateHandlerJSON))
-	mux.Post(`/value/`, logger.WithLogging(s.getMetricHandlerJSON))
+	mux.Get("/", logger.WithLogging(compress.WithGzip(s.listMetricHandler)))
+	mux.Post(`/update/`, logger.WithLogging(compress.WithGzip(s.updateHandlerJSON)))
+	mux.Post(`/value/`, logger.WithLogging(compress.WithGzip(s.getMetricHandlerJSON)))
 	mux.Get("/value/{type}/{name}", logger.WithLogging(s.getMetricHandler))
 	mux.Post(`/update/{type}/{name}/{value}`, logger.WithLogging(s.updateHandler))
 
@@ -76,9 +77,9 @@ func (s *Server) listMetricHandler(res http.ResponseWriter, req *http.Request) {
 	for i, v := range list {
 		var value string
 		switch v.MType {
-		case metric.Counter:
-			value = strconv.FormatFloat(*v.Value, 'f', -1, 64)
 		case metric.Gauge:
+			value = strconv.FormatFloat(*v.Value, 'f', -1, 64)
+		case metric.Counter:
 			value = fmt.Sprintf("%d", *v.Delta)
 		}
 		li[i] = fmt.Sprintf("<li>%s: %s</li>", v.ID, value)
