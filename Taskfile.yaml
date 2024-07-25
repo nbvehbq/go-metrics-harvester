@@ -8,12 +8,12 @@ tasks:
   server:
     desc: "Start metric server"
     cmds:
-      - go run ./cmd/server/main.go
+      - go run ./cmd/server/main.go {{.CLI_ARGS}}
 
   agent:
     desc: "Start agent"
     cmds:
-      - go run ./cmd/agent/main.go
+      - go run ./cmd/agent/main.go {{.CLI_ARGS}}
 
   build:
     desc: "Build binaries"

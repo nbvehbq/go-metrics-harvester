@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -31,6 +32,10 @@ func (m *mockStorage) Get(key string) (metric.Metric, bool) {
 
 func (m *mockStorage) List() []metric.Metric {
 	return m.st
+}
+
+func (m *mockStorage) Persist(_ io.Writer) error {
+	return nil
 }
 
 func intPtr(v int64) *int64 {
@@ -128,7 +133,8 @@ func TestServer_updateHandler(t *testing.T) {
 			w := httptest.NewRecorder()
 
 			req := httptest.NewRequest(http.MethodPost, "/value", bytes.NewBuffer(test.body))
-			srv := NewServer(&mockStorage{}, &Config{})
+			srv, err := NewServer(&mockStorage{}, &Config{})
+			assert.NoError(t, err)
 			srv.updateHandlerJSON(w, req)
 
 			res := w.Result()
@@ -197,7 +203,8 @@ func TestServer_getMetricHandler(t *testing.T) {
 				storage.Set(*test.want.storage)
 			}
 
-			srv := NewServer(storage, &Config{})
+			srv, err := NewServer(storage, &Config{})
+			assert.NoError(t, err)
 			srv.getMetricHandlerJSON(w, req)
 
 			res := w.Result()
@@ -232,7 +239,9 @@ func TestServer_listMetricHandler(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			w := httptest.NewRecorder()
 
-			srv := NewServer(&mockStorage{}, &Config{})
+			srv, err := NewServer(&mockStorage{}, &Config{})
+			assert.NoError(t, err)
+
 			srv.listMetricHandler(w, req)
 
 			res := w.Result()

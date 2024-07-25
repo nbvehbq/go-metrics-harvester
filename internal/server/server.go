@@ -4,33 +4,43 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/nbvehbq/go-metrics-harvester/internal/compress"
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
+	"go.uber.org/zap"
 )
 
 type Repository interface {
 	Set(value metric.Metric)
 	Get(key string) (metric.Metric, bool)
 	List() []metric.Metric
+	Persist(dest io.Writer) error
 }
 
 type Server struct {
-	srv     *http.Server
-	storage Repository
+	srv             *http.Server
+	storage         Repository
+	storeInterval   int64
+	fileStoragePath string
 }
 
-func NewServer(storage Repository, cfg *Config) *Server {
+func NewServer(storage Repository, cfg *Config) (*Server, error) {
 	mux := chi.NewRouter()
 
 	s := &Server{
-		srv:     &http.Server{Addr: cfg.Address, Handler: mux},
-		storage: storage,
+		srv:             &http.Server{Addr: cfg.Address, Handler: mux},
+		storage:         storage,
+		storeInterval:   cfg.StoreInterval,
+		fileStoragePath: cfg.FileStoragePath,
 	}
 
 	mux.Get("/", logger.WithLogging(compress.WithGzip(s.listMetricHandler)))
@@ -39,14 +49,36 @@ func NewServer(storage Repository, cfg *Config) *Server {
 	mux.Get("/value/{type}/{name}", logger.WithLogging(s.getMetricHandler))
 	mux.Post(`/update/{type}/{name}/{value}`, logger.WithLogging(s.updateHandler))
 
-	return s
+	return s, nil
 }
 
-func (s *Server) Run() error {
+func (s *Server) Run(ctx context.Context) error {
 	logger.Log.Info("Server started.")
+
+	var wg sync.WaitGroup
+
+	if s.storeInterval > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Second * time.Duration(s.storeInterval)):
+					if err := s.saveToFile(); err != nil {
+						logger.Log.Error("save error", zap.Error(err))
+					}
+				}
+			}
+		}()
+	}
+
 	if err := s.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}
+
+	wg.Wait()
 
 	return nil
 }
@@ -147,6 +179,10 @@ func (s *Server) updateHandlerJSON(res http.ResponseWriter, req *http.Request) {
 	s.storage.Set(m)
 	updated, _ := s.storage.Get(m.ID)
 
+	if s.storeInterval == 0 {
+		go s.saveToFile()
+	}
+
 	res.Header().Set("Content-Type", "application/json")
 	res.WriteHeader(http.StatusOK)
 
@@ -219,6 +255,19 @@ func (s *Server) updateHandler(res http.ResponseWriter, req *http.Request) {
 
 	res.Header().Set("Content-Type", "text/plain")
 	res.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) saveToFile() (err error) {
+	file, err := os.OpenFile(s.fileStoragePath, os.O_WRONLY|os.O_CREATE, 0666)
+	if err != nil {
+		return err
+	}
+
+	if err := s.storage.Persist(file); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func JSONError(w http.ResponseWriter, msg string, code int) {

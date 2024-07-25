@@ -35,5 +35,4 @@ func main() {
 	cancel()
 
 	runner.Wait()
-	log.Println("Agent stoped.")
 }
