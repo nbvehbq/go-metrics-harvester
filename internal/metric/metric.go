@@ -13,7 +13,7 @@ const (
 type Validator func(value string) bool
 
 func validateCounter(value string) bool {
-	_, err := strconv.Atoi(value)
+	_, err := strconv.ParseInt(value, 10, 64)
 	return err == nil
 }
 
@@ -23,7 +23,7 @@ func validateGauge(value string) bool {
 }
 
 var (
-	AllowedMetricName = map[string]Validator{
+	AllowedMetricType = map[string]Validator{
 		Gauge:   validateGauge,
 		Counter: validateCounter,
 	}

@@ -9,7 +9,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -55,17 +54,19 @@ func NewServer(storage Repository, cfg *Config) (*Server, error) {
 func (s *Server) Run(ctx context.Context) error {
 	logger.Log.Info("Server started.")
 
-	var wg sync.WaitGroup
+	storeInterval := time.Second * time.Duration(s.storeInterval)
+	wait := make(chan struct{}, 1)
 
 	if s.storeInterval > 0 {
-		wg.Add(1)
 		go func() {
-			defer wg.Done()
+			defer func() {
+				wait <- struct{}{}
+			}()
 			for {
 				select {
 				case <-ctx.Done():
 					return
-				case <-time.After(time.Second * time.Duration(s.storeInterval)):
+				case <-time.After(storeInterval):
 					if err := s.saveToFile(); err != nil {
 						logger.Log.Error("save error", zap.Error(err))
 					}
@@ -78,7 +79,7 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 
-	wg.Wait()
+	<-wait
 
 	return nil
 }
@@ -129,7 +130,7 @@ func (s *Server) getMetricHandlerJSON(res http.ResponseWriter, req *http.Request
 		return
 	}
 
-	_, ok := metric.AllowedMetricName[m.MType]
+	_, ok := metric.AllowedMetricType[m.MType]
 	if !ok {
 		JSONError(res, "not found", http.StatusNotFound)
 		return
@@ -170,7 +171,7 @@ func (s *Server) updateHandlerJSON(res http.ResponseWriter, req *http.Request) {
 	}
 
 	// check metric type
-	_, ok := metric.AllowedMetricName[m.MType]
+	_, ok := metric.AllowedMetricType[m.MType]
 	if !ok {
 		JSONError(res, "bad request (type)", http.StatusBadRequest)
 		return
@@ -196,7 +197,7 @@ func (s *Server) getMetricHandler(res http.ResponseWriter, req *http.Request) {
 	mtype := chi.URLParam(req, "type")
 	mname := chi.URLParam(req, "name")
 
-	_, ok := metric.AllowedMetricName[mtype]
+	_, ok := metric.AllowedMetricType[mtype]
 	if !ok {
 		http.Error(res, "not found", http.StatusNotFound)
 		return
@@ -231,7 +232,7 @@ func (s *Server) updateHandler(res http.ResponseWriter, req *http.Request) {
 	}
 
 	// check metric type
-	validate, ok := metric.AllowedMetricName[mtype]
+	validate, ok := metric.AllowedMetricType[mtype]
 	if !ok {
 		http.Error(res, "bad request (type)", http.StatusBadRequest)
 		return
@@ -244,9 +245,11 @@ func (s *Server) updateHandler(res http.ResponseWriter, req *http.Request) {
 	}
 	m := metric.Metric{ID: mname, MType: mtype}
 	if mtype == metric.Counter {
+		// ошибку не обрабатываем т.к выше вызывали функцию validate
 		delta, _ := strconv.ParseInt(mvalue, 10, 64)
 		m.Delta = &delta
 	} else {
+		// ошибку не обрабатываем т.к выше вызывали функцию validate
 		value, _ := strconv.ParseFloat(mvalue, 64)
 		m.Value = &value
 	}

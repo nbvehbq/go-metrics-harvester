@@ -7,7 +7,7 @@ import (
 	"go.uber.org/zap"
 )
 
-var Log *zap.Logger = zap.NewNop()
+var Log = zap.NewNop()
 
 type responseData struct {
 	status int

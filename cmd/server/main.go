@@ -28,12 +28,18 @@ func main() {
 	if cfg.Restore {
 		file, err := os.OpenFile(cfg.FileStoragePath, os.O_RDONLY|os.O_CREATE, 0666)
 		if err != nil {
-			log.Fatal(err, " open storage file")
+			log.Fatal(err, "open storage file")
+		}
+		fi, err := file.Stat()
+		if err != nil {
+			log.Fatal(err, "could not obtain stat")
 		}
 
-		db, err = storage.NewFrom(file)
-		if err != nil {
-			log.Fatal(err, " restor storage from file")
+		if fi.Size() > 0 {
+			db, err = storage.NewFrom(file)
+			if err != nil {
+				log.Fatal(err, " restor storage from file")
+			}
 		}
 	}
 
@@ -55,7 +61,7 @@ func main() {
 		defer cancel()
 
 		if err := server.Shutdown(nctx); err != nil {
-			panic(err)
+			log.Fatal(err)
 		}
 	}()
 

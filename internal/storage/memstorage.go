@@ -2,11 +2,9 @@ package storage
 
 import (
 	"encoding/json"
-	"errors"
 	"io"
 	"sync"
 
-	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
 )
 
@@ -18,13 +16,9 @@ type MemStorage struct {
 func NewFrom(src io.Reader) (*MemStorage, error) {
 	var list []metric.Metric
 	if err := json.NewDecoder(src).Decode(&list); err != nil {
-		if errors.Is(err, io.EOF) {
-			logger.Log.Info("Storage file empty")
-			return NewMemStorage(), nil
-		}
-
 		return nil, err
 	}
+
 	s := make(map[string]metric.Metric, len(list))
 	for _, m := range list {
 		s[m.ID] = m
