@@ -8,13 +8,18 @@ import (
 	"syscall"
 
 	"github.com/nbvehbq/go-metrics-harvester/internal/agent"
+	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"golang.org/x/sync/errgroup"
 )
 
 func main() {
 	cfg, err := agent.NewConfig()
 	if err != nil {
-		panic(err)
+		log.Fatal(err, "Load config error")
+	}
+
+	if err := logger.Initialize(cfg.LogLevel); err != nil {
+		log.Fatal(err, "initialize logger")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -30,5 +35,4 @@ func main() {
 	cancel()
 
 	runner.Wait()
-	log.Println("Agent stoped.")
 }
