@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
 	"github.com/nbvehbq/go-metrics-harvester/internal/compress"
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
@@ -27,9 +29,11 @@ type Repository interface {
 
 type Server struct {
 	srv             *http.Server
+	db              *sqlx.DB
 	storage         Repository
 	storeInterval   int64
 	fileStoragePath string
+	databaseDSN     string
 }
 
 func NewServer(storage Repository, cfg *Config) (*Server, error) {
@@ -40,9 +44,11 @@ func NewServer(storage Repository, cfg *Config) (*Server, error) {
 		storage:         storage,
 		storeInterval:   cfg.StoreInterval,
 		fileStoragePath: cfg.FileStoragePath,
+		databaseDSN:     cfg.DatabaseDSN,
 	}
 
 	mux.Get("/", logger.WithLogging(compress.WithGzip(s.listMetricHandler)))
+	mux.Get("/ping", logger.WithLogging(s.pingDBHandler))
 	mux.Post(`/update/`, logger.WithLogging(compress.WithGzip(s.updateHandlerJSON)))
 	mux.Post(`/value/`, logger.WithLogging(compress.WithGzip(s.getMetricHandlerJSON)))
 	mux.Get("/value/{type}/{name}", logger.WithLogging(s.getMetricHandler))
@@ -53,6 +59,14 @@ func NewServer(storage Repository, cfg *Config) (*Server, error) {
 
 func (s *Server) Run(ctx context.Context) error {
 	logger.Log.Info("Server started.")
+
+	if s.databaseDSN != "" {
+		var err error
+		s.db, err = sqlx.ConnectContext(ctx, "postgres", s.databaseDSN)
+		if err != nil {
+			return err
+		}
+	}
 
 	storeInterval := time.Second * time.Duration(s.storeInterval)
 	wait := make(chan struct{}, 1)
@@ -86,7 +100,27 @@ func (s *Server) Run(ctx context.Context) error {
 
 func (s *Server) Shutdown(ctx context.Context) error {
 	logger.Log.Info("Server stoped.")
+	if s.db != nil {
+		s.db.Close()
+	}
 	return s.srv.Shutdown(ctx)
+}
+
+func (s *Server) pingDBHandler(res http.ResponseWriter, req *http.Request) {
+	ctx := req.Context()
+
+	if s.db == nil {
+		http.Error(res, "", http.StatusInternalServerError)
+		return
+	}
+
+	if err := s.db.PingContext(ctx); err != nil {
+		http.Error(res, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	res.Header().Set("Content-Type", "text/plain")
+	res.WriteHeader(http.StatusOK)
 }
 
 func (s *Server) listMetricHandler(res http.ResponseWriter, req *http.Request) {
