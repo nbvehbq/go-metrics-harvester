@@ -10,7 +10,8 @@ import (
 
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/server"
-	"github.com/nbvehbq/go-metrics-harvester/internal/storage"
+	"github.com/nbvehbq/go-metrics-harvester/internal/storage/memory"
+	"github.com/nbvehbq/go-metrics-harvester/internal/storage/postgres"
 )
 
 func main() {
@@ -24,7 +25,18 @@ func main() {
 		log.Fatal(err, "initialize logger")
 	}
 
-	db := storage.NewMemStorage()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var db server.Repository
+	if cfg.DatabaseDSN == "" {
+		db = memory.NewMemStorage()
+	} else {
+		db, err = postgres.NewStorage(ctx, cfg.DatabaseDSN)
+		if err != nil {
+			log.Fatal(err, "connect to db")
+		}
+	}
+
 	if cfg.Restore {
 		file, err := os.OpenFile(cfg.FileStoragePath, os.O_RDONLY|os.O_CREATE, 0666)
 		if err != nil {
@@ -36,9 +48,16 @@ func main() {
 		}
 
 		if fi.Size() > 0 {
-			db, err = storage.NewFrom(file)
-			if err != nil {
-				log.Fatal(err, " restor storage from file")
+			if cfg.DatabaseDSN == "" {
+				db, err = memory.NewFrom(file)
+				if err != nil {
+					log.Fatal(err, " restor storage from file")
+				}
+			} else {
+				db, err = postgres.NewFrom(ctx, file, cfg.DatabaseDSN)
+				if err != nil {
+					log.Fatal(err, " restor storage from file")
+				}
 			}
 		}
 	}
@@ -47,8 +66,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err, "create server")
 	}
-
-	ctx, cancel := context.WithCancel(context.Background())
 
 	go func() {
 		defer cancel()

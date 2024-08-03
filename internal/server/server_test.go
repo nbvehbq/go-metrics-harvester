@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -16,8 +17,9 @@ type mockStorage struct {
 	st []metric.Metric
 }
 
-func (m *mockStorage) Set(value metric.Metric) {
+func (m *mockStorage) Set(value metric.Metric) error {
 	m.st = append(m.st, value)
+	return nil
 }
 
 func (m *mockStorage) Get(key string) (metric.Metric, bool) {
@@ -30,11 +32,15 @@ func (m *mockStorage) Get(key string) (metric.Metric, bool) {
 	return metric.Metric{}, false
 }
 
-func (m *mockStorage) List() []metric.Metric {
-	return m.st
+func (m *mockStorage) List() ([]metric.Metric, error) {
+	return m.st, nil
 }
 
 func (m *mockStorage) Persist(_ io.Writer) error {
+	return nil
+}
+
+func (m *mockStorage) Ping(ctx context.Context) error {
 	return nil
 }
 

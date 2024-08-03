@@ -53,7 +53,7 @@ func NewConfig() (*Config, error) {
 		cfg.Address = strings.Replace(cfg.Address, "http://", "", -1)
 	}
 
-	if cfg.FileStoragePath == "" {
+	if cfg.Restore && cfg.FileStoragePath == "" {
 		f, err := os.CreateTemp("", "metric")
 		if err != nil {
 			return nil, err

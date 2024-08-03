@@ -12,8 +12,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jmoiron/sqlx"
-	_ "github.com/lib/pq"
 	"github.com/nbvehbq/go-metrics-harvester/internal/compress"
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
@@ -21,15 +19,15 @@ import (
 )
 
 type Repository interface {
-	Set(value metric.Metric)
+	Set(value metric.Metric) error
 	Get(key string) (metric.Metric, bool)
-	List() []metric.Metric
+	List() ([]metric.Metric, error)
 	Persist(dest io.Writer) error
+	Ping(ctx context.Context) error
 }
 
 type Server struct {
 	srv             *http.Server
-	db              *sqlx.DB
 	storage         Repository
 	storeInterval   int64
 	fileStoragePath string
@@ -59,14 +57,6 @@ func NewServer(storage Repository, cfg *Config) (*Server, error) {
 
 func (s *Server) Run(ctx context.Context) error {
 	logger.Log.Info("Server started.")
-
-	if s.databaseDSN != "" {
-		var err error
-		s.db, err = sqlx.ConnectContext(ctx, "postgres", s.databaseDSN)
-		if err != nil {
-			return err
-		}
-	}
 
 	storeInterval := time.Second * time.Duration(s.storeInterval)
 	wait := make(chan struct{}, 1)
@@ -100,22 +90,14 @@ func (s *Server) Run(ctx context.Context) error {
 
 func (s *Server) Shutdown(ctx context.Context) error {
 	logger.Log.Info("Server stoped.")
-	if s.db != nil {
-		s.db.Close()
-	}
 	return s.srv.Shutdown(ctx)
 }
 
 func (s *Server) pingDBHandler(res http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
 
-	if s.db == nil {
+	if err := s.storage.Ping(ctx); err != nil {
 		http.Error(res, "", http.StatusInternalServerError)
-		return
-	}
-
-	if err := s.db.PingContext(ctx); err != nil {
-		http.Error(res, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -139,7 +121,12 @@ func (s *Server) listMetricHandler(res http.ResponseWriter, req *http.Request) {
 </html>
 	`
 
-	list := s.storage.List()
+	list, err := s.storage.List()
+	if err != nil {
+		http.Error(res, "", http.StatusInternalServerError)
+		return
+	}
+
 	li := make([]string, len(list))
 	for i, v := range list {
 		var value string
@@ -211,7 +198,10 @@ func (s *Server) updateHandlerJSON(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	s.storage.Set(m)
+	if err := s.storage.Set(m); err != nil {
+		JSONError(res, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	updated, _ := s.storage.Get(m.ID)
 
 	if s.storeInterval == 0 {
@@ -288,7 +278,10 @@ func (s *Server) updateHandler(res http.ResponseWriter, req *http.Request) {
 		m.Value = &value
 	}
 
-	s.storage.Set(m)
+	if err := s.storage.Set(m); err != nil {
+		http.Error(res, "", http.StatusInternalServerError)
+		return
+	}
 
 	res.Header().Set("Content-Type", "text/plain")
 	res.WriteHeader(http.StatusOK)
