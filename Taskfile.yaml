@@ -25,3 +25,7 @@ tasks:
     desc: "Clear building artifacts"
     cmds:
       - rm ./cmd/server/server ./cmd/agent/agent
+
+  mockgen:
+    cmds:
+      - mockgen -destination=internal/storage/mocks/mock_storage.go -package=mocks github.com/nbvehbq/go-metrics-harvester/internal/server Repository 

@@ -104,3 +104,28 @@ func (s *Storage) List() ([]metric.Metric, error) {
 func (s *Storage) Ping(ctx context.Context) error {
 	return storage.ErrNotSupported
 }
+
+func (s *Storage) Update(ctx context.Context, m []metric.Metric) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, value := range m {
+		v, ok := s.storage[value.ID]
+		if !ok {
+			s.storage[value.ID] = value
+			continue
+		}
+
+		switch value.MType {
+		case metric.Gauge:
+			val := *value.Value
+			v.Value = &val
+		case metric.Counter:
+			*v.Delta += *value.Delta
+		}
+
+		s.storage[value.ID] = v
+	}
+
+	return nil
+}

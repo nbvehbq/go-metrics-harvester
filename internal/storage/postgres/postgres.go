@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"io"
 
@@ -12,6 +13,16 @@ import (
 	"github.com/nbvehbq/go-metrics-harvester/internal/storage"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
+)
+
+const (
+	insertQuery = `
+	INSERT INTO metric (id, mtype, delta, value)
+	VALUES ($1, $2, $3, $4)
+	ON CONFLICT(id)
+	DO UPDATE SET 
+		delta = EXCLUDED.delta + metric.delta, 
+		value = EXCLUDED.value;`
 )
 
 type Storage struct {
@@ -50,35 +61,24 @@ func NewFrom(ctx context.Context, src io.Reader, DSN string) (*Storage, error) {
 		return nil, err
 	}
 
-	// values := make([]string, 0, len(list))
-	// valuesArgs := make([]interface{}, 0, len(list)*4)
-	// for _, v := range list {
-	// 	values = append(values, "($1, $2, $3, $4)")
-	// 	valuesArgs = append(valuesArgs, v.ID)
-	// 	valuesArgs = append(valuesArgs, v.MType)
-	// 	valuesArgs = append(valuesArgs, v.Delta)
-	// 	valuesArgs = append(valuesArgs, v.Value)
-	// }
-	// fmt.Sprintf("INSERT INTO metric (id, mtype, delta, value) VALUES %s", fmt.Sprintf())
-
 	tx, err := db.Begin()
 	if err != nil {
 		return nil, errors.Wrap(err, "begin transaction")
 	}
 
-	stmt, err := tx.Prepare(pq.CopyIn("metric", "id", "mtype", "delta", "value"))
+	stmt, err := tx.PrepareContext(ctx, pq.CopyIn("metric", "id", "mtype", "delta", "value"))
 	if err != nil {
 		return nil, errors.Wrap(err, "prepare")
 	}
 
 	for _, m := range list {
-		_, err = stmt.Exec(m.ID, m.MType, m.Delta, m.Value)
+		_, err = stmt.ExecContext(ctx, m.ID, m.MType, m.Delta, m.Value)
 		if err != nil {
 			return nil, errors.Wrap(err, "exec item")
 		}
 	}
 
-	_, err = stmt.Exec()
+	_, err = stmt.ExecContext(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "exec all")
 	}
@@ -97,7 +97,7 @@ func NewFrom(ctx context.Context, src io.Reader, DSN string) (*Storage, error) {
 }
 
 func clearDatabase(ctx context.Context, db *sqlx.DB) error {
-	_, err := db.ExecContext(ctx, `truncate table public."metric";`)
+	_, err := db.ExecContext(ctx, `truncate table "metric";`)
 	if err != nil {
 		return err
 	}
@@ -132,14 +132,7 @@ func (s *Storage) Set(value metric.Metric) error {
 		return storage.ErrMetricMalformed
 	}
 
-	query := `
-	INSERT INTO metric (id, mtype, delta, value)
-	VALUES ($1, $2, $3, $4)
-	ON CONFLICT(id)
-	DO UPDATE SET 
-		delta = EXCLUDED.delta + metric.delta, 
-		value = EXCLUDED.value;`
-	if _, err := s.db.Exec(query, value.ID, value.MType, value.Delta, value.Value); err != nil {
+	if _, err := s.db.Exec(insertQuery, value.ID, value.MType, value.Delta, value.Value); err != nil {
 		return errors.Wrap(err, "insert metric")
 	}
 
@@ -149,7 +142,7 @@ func (s *Storage) Set(value metric.Metric) error {
 func (s *Storage) Get(key string) (metric.Metric, bool) {
 	var res metric.Metric
 	err := s.db.Get(&res, `SELECT id, mtype, delta, value FROM metric WHERE id = $1;`, key)
-	if err != nil {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		logger.Log.Error("get metric", zap.Error(err))
 	}
 
@@ -182,4 +175,31 @@ func (s *Storage) Persist(dest io.Writer) error {
 
 func (s *Storage) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
+}
+
+func (s *Storage) Update(ctx context.Context, m []metric.Metric) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return errors.Wrap(err, "begin transaction")
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, insertQuery)
+	if err != nil {
+		return errors.Wrap(err, "prepare")
+	}
+	defer stmt.Close()
+
+	for _, v := range m {
+		_, err := stmt.ExecContext(ctx, v.ID, v.MType, v.Delta, v.Value)
+		if err != nil {
+			return errors.Wrap(err, "exec item")
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return errors.Wrap(err, "commit")
+	}
+
+	return nil
 }

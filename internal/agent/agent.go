@@ -52,7 +52,7 @@ func (a *Agent) Run(ctx context.Context) {
 				return ctx.Err()
 			case <-time.After(time.Second * time.Duration(a.cfg.ReportInterval)):
 				if err := a.publishMetrics(metrics); err != nil {
-					return err
+					logger.Log.Error("publish", zap.Error(err))
 				}
 			}
 		}
@@ -116,15 +116,34 @@ func (a *Agent) publishMetrics(m *metric.Metrics) error {
 		logger.Log.Info("Metrics published")
 	}()
 
+	list := make([]metric.Metric, 0, len(m.Metrics))
 	for _, v := range m.Metrics {
-		v := v
-		a.runner.Go(func() error {
-			if err := a.makePostRequest(v); err != nil {
-				logger.Log.Error("request error:", zap.Error(err))
-				return nil
-			}
-			return nil
-		})
+		list = append(list, v)
+	}
+
+	buf, err := json.Marshal(list)
+	if err != nil {
+		return errors.Wrap(err, "marshal")
+	}
+
+	buf, err = compress(buf)
+	if err != nil {
+		return errors.Wrap(err, "compress")
+	}
+
+	res, err := a.client.R().
+		SetHeader("Content-Type", "application/json").
+		SetHeader("Accept-Encoding", "gzip").
+		SetHeader("Content-Encoding", "gzip").
+		SetBody(buf).
+		Post(fmt.Sprintf("%s/updates/", a.cfg.Address))
+
+	if err != nil {
+		return errors.Wrap(err, "resty post")
+	}
+
+	if res.StatusCode() != http.StatusOK {
+		return fmt.Errorf("status: %d", res.StatusCode())
 	}
 
 	return nil
