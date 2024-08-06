@@ -13,6 +13,7 @@ import (
 	"github.com/nbvehbq/go-metrics-harvester/internal/storage"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
+	"gopkg.in/matryer/try.v1"
 )
 
 const (
@@ -30,7 +31,12 @@ type Storage struct {
 }
 
 func NewStorage(ctx context.Context, DSN string) (*Storage, error) {
-	db, err := sqlx.ConnectContext(ctx, "postgres", DSN)
+	var db *sqlx.DB
+	err := try.Do(func(attempt int) (retry bool, err error) {
+		db, err = sqlx.ConnectContext(ctx, "postgres", DSN)
+		return
+	})
+
 	if err != nil {
 		return nil, errors.Wrap(err, "connect to db")
 	}
@@ -43,7 +49,11 @@ func NewStorage(ctx context.Context, DSN string) (*Storage, error) {
 }
 
 func NewFrom(ctx context.Context, src io.Reader, DSN string) (*Storage, error) {
-	db, err := sqlx.ConnectContext(ctx, "postgres", DSN)
+	var db *sqlx.DB
+	err := try.Do(func(attempt int) (retry bool, err error) {
+		db, err = sqlx.ConnectContext(ctx, "postgres", DSN)
+		return
+	})
 	if err != nil {
 		return nil, errors.Wrap(err, "connect to db")
 	}

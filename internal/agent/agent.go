@@ -14,6 +14,7 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
+	"github.com/nbvehbq/go-metrics-harvester/internal/retry"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
@@ -131,12 +132,17 @@ func (a *Agent) publishMetrics(m *metric.Metrics) error {
 		return errors.Wrap(err, "compress")
 	}
 
-	res, err := a.client.R().
-		SetHeader("Content-Type", "application/json").
-		SetHeader("Accept-Encoding", "gzip").
-		SetHeader("Content-Encoding", "gzip").
-		SetBody(buf).
-		Post(fmt.Sprintf("%s/updates/", a.cfg.Address))
+	var res *resty.Response
+	err = retry.Do(func(attemts int) (retry bool, err error) {
+		res, err = a.client.R().
+			SetHeader("Content-Type", "application/json").
+			SetHeader("Accept-Encoding", "gzip").
+			SetHeader("Content-Encoding", "gzip").
+			SetBody(buf).
+			Post(fmt.Sprintf("%s/updates/", a.cfg.Address))
+
+		return
+	})
 
 	if err != nil {
 		return errors.Wrap(err, "resty post")
