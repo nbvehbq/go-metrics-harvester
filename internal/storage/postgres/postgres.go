@@ -120,7 +120,7 @@ func initDatabaseStructure(ctx context.Context, db *sqlx.DB) error {
 	CREATE TABLE IF NOT EXISTS "metric" (
 	  id TEXT NOT NULL,
 	  mtype TEXT NOT NULL,
-	  delta INT,
+	  delta BIGINT,
 	  value DOUBLE PRECISION,
 
 		CONSTRAINT "id_pkey" PRIMARY KEY ("id")

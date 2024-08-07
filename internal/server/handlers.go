@@ -10,7 +10,9 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
+	"go.uber.org/zap"
 )
 
 func (s *Server) pingDBHandler(res http.ResponseWriter, req *http.Request) {
@@ -237,6 +239,7 @@ func (s *Server) updatesHandlerJSON(res http.ResponseWriter, req *http.Request) 
 
 	ctx := req.Context()
 	if err := s.storage.Update(ctx, me); err != nil {
+		logger.Log.Error("update", zap.Error(err))
 		JSONError(res, err.Error(), http.StatusBadRequest)
 		return
 	}
