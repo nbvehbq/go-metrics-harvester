@@ -35,7 +35,7 @@ func NewMemStorage() *Storage {
 	return &Storage{storage: s, mu: &sync.Mutex{}}
 }
 
-func (s *Storage) Persist(dest io.Writer) error {
+func (s *Storage) Persist(_ context.Context, dest io.Writer) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -51,7 +51,7 @@ func (s *Storage) Persist(dest io.Writer) error {
 	return nil
 }
 
-func (s *Storage) Set(value metric.Metric) error {
+func (s *Storage) Set(_ context.Context, value metric.Metric) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -81,7 +81,7 @@ func (s *Storage) Set(value metric.Metric) error {
 	return nil
 }
 
-func (s *Storage) Get(key string) (metric.Metric, bool) {
+func (s *Storage) Get(_ context.Context, key string) (metric.Metric, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -89,7 +89,7 @@ func (s *Storage) Get(key string) (metric.Metric, bool) {
 	return v, ok
 }
 
-func (s *Storage) List() ([]metric.Metric, error) {
+func (s *Storage) List(_ context.Context) ([]metric.Metric, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -101,11 +101,11 @@ func (s *Storage) List() ([]metric.Metric, error) {
 	return list, nil
 }
 
-func (s *Storage) Ping(ctx context.Context) error {
+func (s *Storage) Ping(_ context.Context) error {
 	return storage.ErrNotSupported
 }
 
-func (s *Storage) Update(ctx context.Context, m []metric.Metric) error {
+func (s *Storage) Update(_ context.Context, m []metric.Metric) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

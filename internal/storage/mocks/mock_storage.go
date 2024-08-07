@@ -37,47 +37,47 @@ func (m *MockRepository) EXPECT() *MockRepositoryMockRecorder {
 }
 
 // Get mocks base method.
-func (m *MockRepository) Get(arg0 string) (metric.Metric, bool) {
+func (m *MockRepository) Get(arg0 context.Context, arg1 string) (metric.Metric, bool) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Get", arg0)
+	ret := m.ctrl.Call(m, "Get", arg0, arg1)
 	ret0, _ := ret[0].(metric.Metric)
 	ret1, _ := ret[1].(bool)
 	return ret0, ret1
 }
 
 // Get indicates an expected call of Get.
-func (mr *MockRepositoryMockRecorder) Get(arg0 interface{}) *gomock.Call {
+func (mr *MockRepositoryMockRecorder) Get(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockRepository)(nil).Get), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockRepository)(nil).Get), arg0, arg1)
 }
 
 // List mocks base method.
-func (m *MockRepository) List() ([]metric.Metric, error) {
+func (m *MockRepository) List(arg0 context.Context) ([]metric.Metric, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "List")
+	ret := m.ctrl.Call(m, "List", arg0)
 	ret0, _ := ret[0].([]metric.Metric)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // List indicates an expected call of List.
-func (mr *MockRepositoryMockRecorder) List() *gomock.Call {
+func (mr *MockRepositoryMockRecorder) List(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockRepository)(nil).List))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockRepository)(nil).List), arg0)
 }
 
 // Persist mocks base method.
-func (m *MockRepository) Persist(arg0 io.Writer) error {
+func (m *MockRepository) Persist(arg0 context.Context, arg1 io.Writer) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Persist", arg0)
+	ret := m.ctrl.Call(m, "Persist", arg0, arg1)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Persist indicates an expected call of Persist.
-func (mr *MockRepositoryMockRecorder) Persist(arg0 interface{}) *gomock.Call {
+func (mr *MockRepositoryMockRecorder) Persist(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Persist", reflect.TypeOf((*MockRepository)(nil).Persist), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Persist", reflect.TypeOf((*MockRepository)(nil).Persist), arg0, arg1)
 }
 
 // Ping mocks base method.
@@ -95,17 +95,17 @@ func (mr *MockRepositoryMockRecorder) Ping(arg0 interface{}) *gomock.Call {
 }
 
 // Set mocks base method.
-func (m *MockRepository) Set(arg0 metric.Metric) error {
+func (m *MockRepository) Set(arg0 context.Context, arg1 metric.Metric) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Set", arg0)
+	ret := m.ctrl.Call(m, "Set", arg0, arg1)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Set indicates an expected call of Set.
-func (mr *MockRepositoryMockRecorder) Set(arg0 interface{}) *gomock.Call {
+func (mr *MockRepositoryMockRecorder) Set(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Set", reflect.TypeOf((*MockRepository)(nil).Set), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Set", reflect.TypeOf((*MockRepository)(nil).Set), arg0, arg1)
 }
 
 // Update mocks base method.

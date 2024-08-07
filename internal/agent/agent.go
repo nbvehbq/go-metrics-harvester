@@ -133,7 +133,7 @@ func (a *Agent) publishMetrics(m *metric.Metrics) error {
 	}
 
 	var res *resty.Response
-	err = retry.Do(func(attemts int) (retry bool, err error) {
+	err = retry.Do(func() (err error) {
 		res, err = a.client.R().
 			SetHeader("Content-Type", "application/json").
 			SetHeader("Accept-Encoding", "gzip").

@@ -120,8 +120,8 @@ func TestServer_updateHandler(t *testing.T) {
 			w := httptest.NewRecorder()
 
 			if test.want.callStorage {
-				m.EXPECT().Set(gomock.Any()).Return(nil)
-				m.EXPECT().Get(gomock.Any()).Return(metric.Metric{}, true)
+				m.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
+				m.EXPECT().Get(gomock.Any(), gomock.Any()).Return(metric.Metric{}, true)
 			}
 
 			req := httptest.NewRequest(http.MethodPost, "/value", bytes.NewBuffer(test.body))
@@ -195,7 +195,7 @@ func TestServer_getMetricHandler(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/value", &body)
 			w := httptest.NewRecorder()
 
-			m.EXPECT().Get(test.want.metric.ID).Return(test.want.metric, test.want.res)
+			m.EXPECT().Get(gomock.Any(), test.want.metric.ID).Return(test.want.metric, test.want.res)
 
 			srv, err := NewServer(m, &Config{})
 			assert.NoError(t, err)
@@ -232,7 +232,7 @@ func TestServer_listMetricHandler(t *testing.T) {
 	defer ctrl.Finish()
 
 	m := mocks.NewMockRepository(ctrl)
-	m.EXPECT().List().Return([]metric.Metric{}, nil)
+	m.EXPECT().List(gomock.Any()).Return([]metric.Metric{}, nil)
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

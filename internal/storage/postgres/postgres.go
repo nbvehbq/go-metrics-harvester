@@ -10,10 +10,10 @@ import (
 	pq "github.com/lib/pq"
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
+	"github.com/nbvehbq/go-metrics-harvester/internal/retry"
 	"github.com/nbvehbq/go-metrics-harvester/internal/storage"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
-	"gopkg.in/matryer/try.v1"
 )
 
 const (
@@ -32,7 +32,7 @@ type Storage struct {
 
 func NewStorage(ctx context.Context, DSN string) (*Storage, error) {
 	var db *sqlx.DB
-	err := try.Do(func(attempt int) (retry bool, err error) {
+	err := retry.Do(func() (err error) {
 		db, err = sqlx.ConnectContext(ctx, "postgres", DSN)
 		return
 	})
@@ -50,7 +50,7 @@ func NewStorage(ctx context.Context, DSN string) (*Storage, error) {
 
 func NewFrom(ctx context.Context, src io.Reader, DSN string) (*Storage, error) {
 	var db *sqlx.DB
-	err := try.Do(func(attempt int) (retry bool, err error) {
+	err := retry.Do(func() (err error) {
 		db, err = sqlx.ConnectContext(ctx, "postgres", DSN)
 		return
 	})
@@ -133,7 +133,7 @@ func initDatabaseStructure(ctx context.Context, db *sqlx.DB) error {
 	return nil
 }
 
-func (s *Storage) Set(value metric.Metric) error {
+func (s *Storage) Set(ctx context.Context, value metric.Metric) error {
 	if value.MType == metric.Counter && value.Delta == nil {
 		return storage.ErrMetricMalformed
 	}
@@ -142,16 +142,16 @@ func (s *Storage) Set(value metric.Metric) error {
 		return storage.ErrMetricMalformed
 	}
 
-	if _, err := s.db.Exec(insertQuery, value.ID, value.MType, value.Delta, value.Value); err != nil {
+	if _, err := s.db.ExecContext(ctx, insertQuery, value.ID, value.MType, value.Delta, value.Value); err != nil {
 		return errors.Wrap(err, "insert metric")
 	}
 
 	return nil
 }
 
-func (s *Storage) Get(key string) (metric.Metric, bool) {
+func (s *Storage) Get(ctx context.Context, key string) (metric.Metric, bool) {
 	var res metric.Metric
-	err := s.db.Get(&res, `SELECT id, mtype, delta, value FROM metric WHERE id = $1;`, key)
+	err := s.db.GetContext(ctx, &res, `SELECT id, mtype, delta, value FROM metric WHERE id = $1;`, key)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		logger.Log.Error("get metric", zap.Error(err))
 	}
@@ -159,9 +159,9 @@ func (s *Storage) Get(key string) (metric.Metric, bool) {
 	return res, err == nil
 }
 
-func (s *Storage) List() ([]metric.Metric, error) {
+func (s *Storage) List(ctx context.Context) ([]metric.Metric, error) {
 	var res []metric.Metric
-	err := s.db.Select(&res, `SELECT id, mtype, delta, value FROM metric;`)
+	err := s.db.SelectContext(ctx, &res, `SELECT id, mtype, delta, value FROM metric;`)
 	if err != nil {
 		logger.Log.Error("select metric", zap.Error(err))
 		return res, errors.Wrap(err, "select metric")
@@ -170,8 +170,8 @@ func (s *Storage) List() ([]metric.Metric, error) {
 	return res, nil
 }
 
-func (s *Storage) Persist(dest io.Writer) error {
-	list, err := s.List()
+func (s *Storage) Persist(ctx context.Context, dest io.Writer) error {
+	list, err := s.List(ctx)
 	if err != nil {
 		return errors.Wrap(err, "persist")
 	}

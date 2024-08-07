@@ -14,12 +14,12 @@ import (
 )
 
 type Repository interface {
-	Set(value metric.Metric) error
-	Get(key string) (metric.Metric, bool)
-	List() ([]metric.Metric, error)
-	Persist(dest io.Writer) error
-	Ping(ctx context.Context) error
-	Update(ctx context.Context, m []metric.Metric) error
+	Set(context.Context, metric.Metric) error
+	Get(context.Context, string) (metric.Metric, bool)
+	List(context.Context) ([]metric.Metric, error)
+	Persist(context.Context, io.Writer) error
+	Ping(context.Context) error
+	Update(context.Context, []metric.Metric) error
 }
 
 type Server struct {
@@ -68,7 +68,7 @@ func (s *Server) Run(ctx context.Context) error {
 				case <-ctx.Done():
 					return
 				case <-time.After(storeInterval):
-					if err := s.saveToFile(); err != nil {
+					if err := s.saveToFile(ctx); err != nil {
 						logger.Log.Error("save error", zap.Error(err))
 					}
 				}

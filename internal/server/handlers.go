@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -40,7 +41,8 @@ func (s *Server) listMetricHandler(res http.ResponseWriter, req *http.Request) {
 </html>
 	`
 
-	list, err := s.storage.List()
+	ctx := req.Context()
+	list, err := s.storage.List(ctx)
 	if err != nil {
 		http.Error(res, "", http.StatusInternalServerError)
 		return
@@ -63,6 +65,7 @@ func (s *Server) listMetricHandler(res http.ResponseWriter, req *http.Request) {
 }
 
 func (s *Server) getMetricHandlerJSON(res http.ResponseWriter, req *http.Request) {
+	ctx := req.Context()
 	var m metric.Metric
 
 	if err := json.NewDecoder(req.Body).Decode(&m); err != nil {
@@ -76,7 +79,7 @@ func (s *Server) getMetricHandlerJSON(res http.ResponseWriter, req *http.Request
 		return
 	}
 
-	value, ok := s.storage.Get(m.ID)
+	value, ok := s.storage.Get(ctx, m.ID)
 	if !ok {
 		JSONError(res, "not found", http.StatusNotFound)
 		return
@@ -97,6 +100,7 @@ func (s *Server) getMetricHandlerJSON(res http.ResponseWriter, req *http.Request
 }
 
 func (s *Server) updateHandlerJSON(res http.ResponseWriter, req *http.Request) {
+	ctx := req.Context()
 	var m metric.Metric
 
 	if err := json.NewDecoder(req.Body).Decode(&m); err != nil {
@@ -117,14 +121,14 @@ func (s *Server) updateHandlerJSON(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if err := s.storage.Set(m); err != nil {
+	if err := s.storage.Set(ctx, m); err != nil {
 		JSONError(res, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	updated, _ := s.storage.Get(m.ID)
+	updated, _ := s.storage.Get(ctx, m.ID)
 
 	if s.storeInterval == 0 {
-		go s.saveToFile()
+		go s.saveToFile(ctx)
 	}
 
 	res.Header().Set("Content-Type", "application/json")
@@ -137,6 +141,7 @@ func (s *Server) updateHandlerJSON(res http.ResponseWriter, req *http.Request) {
 }
 
 func (s *Server) getMetricHandler(res http.ResponseWriter, req *http.Request) {
+	ctx := req.Context()
 	mtype := chi.URLParam(req, "type")
 	mname := chi.URLParam(req, "name")
 
@@ -146,7 +151,7 @@ func (s *Server) getMetricHandler(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	m, ok := s.storage.Get(mname)
+	m, ok := s.storage.Get(ctx, mname)
 	if !ok {
 		http.Error(res, "not found", http.StatusNotFound)
 		return
@@ -164,6 +169,7 @@ func (s *Server) getMetricHandler(res http.ResponseWriter, req *http.Request) {
 }
 
 func (s *Server) updateHandler(res http.ResponseWriter, req *http.Request) {
+	ctx := req.Context()
 	mtype := chi.URLParam(req, "type")
 	mname := chi.URLParam(req, "name")
 	mvalue := chi.URLParam(req, "value")
@@ -197,7 +203,7 @@ func (s *Server) updateHandler(res http.ResponseWriter, req *http.Request) {
 		m.Value = &value
 	}
 
-	if err := s.storage.Set(m); err != nil {
+	if err := s.storage.Set(ctx, m); err != nil {
 		http.Error(res, "", http.StatusInternalServerError)
 		return
 	}
@@ -239,13 +245,13 @@ func (s *Server) updatesHandlerJSON(res http.ResponseWriter, req *http.Request) 
 	res.WriteHeader(http.StatusOK)
 }
 
-func (s *Server) saveToFile() (err error) {
+func (s *Server) saveToFile(ctx context.Context) (err error) {
 	file, err := os.OpenFile(s.fileStoragePath, os.O_WRONLY|os.O_CREATE, 0666)
 	if err != nil {
 		return err
 	}
 
-	if err := s.storage.Persist(file); err != nil {
+	if err := s.storage.Persist(ctx, file); err != nil {
 		return err
 	}
 
