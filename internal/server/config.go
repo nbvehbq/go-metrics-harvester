@@ -19,6 +19,7 @@ const (
 	storeIntervalUsage = "metrics saving interval (default 300 seconds) 0 means saving synchronously"
 	storePathUsage     = "metric db filename path"
 	restoreUsage       = "restore metrics at start (default true)"
+	databaseUsage      = "database DSN string eg 'postgresql://user:password@localhost:5432/dbname'"
 )
 
 type Config struct {
@@ -27,6 +28,7 @@ type Config struct {
 	StoreInterval   int64  `env:"STORE_INTERVAL"`
 	FileStoragePath string `env:"FILE_STORAGE_PATH"`
 	Restore         bool   `env:"RESTORE"`
+	DatabaseDSN     string `env:"DATABASE_DSN"`
 }
 
 func NewConfig() (*Config, error) {
@@ -40,6 +42,7 @@ func NewConfig() (*Config, error) {
 	flag.Int64Var(&cfg.StoreInterval, "i", defaultStoreInterval, storeIntervalUsage)
 	flag.StringVar(&cfg.FileStoragePath, "f", "", storePathUsage)
 	flag.BoolVar(&cfg.Restore, "r", defaultRestore, restoreUsage)
+	flag.StringVar(&cfg.DatabaseDSN, "d", "", databaseUsage)
 	flag.Parse()
 
 	if err := env.Parse(cfg); err != nil {
@@ -50,7 +53,7 @@ func NewConfig() (*Config, error) {
 		cfg.Address = strings.Replace(cfg.Address, "http://", "", -1)
 	}
 
-	if cfg.FileStoragePath == "" {
+	if cfg.Restore && cfg.FileStoragePath == "" {
 		f, err := os.CreateTemp("", "metric")
 		if err != nil {
 			return nil, err
