@@ -19,6 +19,7 @@ type Config struct {
 	ReportInterval int64  `env:"REPORT_INTERVAL"`
 	PollInterval   int64  `env:"POLL_INTERVAL"`
 	LogLevel       string `env:"LOG_LEVEL"`
+	Key            string `env:"KEY"`
 }
 
 func NewConfig() (*Config, error) {
@@ -33,6 +34,7 @@ func NewConfig() (*Config, error) {
 	flag.Int64Var(&cfg.ReportInterval, "r", 10, "send report interval default 10 seconds")
 	flag.Int64Var(&cfg.PollInterval, "p", 2, "request metric poll interval default 2 seconds")
 	flag.StringVar(&cfg.LogLevel, "l", defaultLogLevel, "log level")
+	flag.StringVar(&cfg.Key, "k", "", "secret key")
 	flag.Parse()
 
 	if err := env.Parse(cfg); err != nil {

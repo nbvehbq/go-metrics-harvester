@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/go-resty/resty/v2"
+	"github.com/nbvehbq/go-metrics-harvester/internal/hash"
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
 	"github.com/nbvehbq/go-metrics-harvester/internal/retry"
@@ -134,44 +136,22 @@ func (a *Agent) publishMetrics(m *metric.Metrics) error {
 
 	var res *resty.Response
 	err = retry.Do(func() (err error) {
-		res, err = a.client.R().
+		req := a.client.R().
 			SetHeader("Content-Type", "application/json").
 			SetHeader("Accept-Encoding", "gzip").
-			SetHeader("Content-Encoding", "gzip").
+			SetHeader("Content-Encoding", "gzip")
+
+		if a.cfg.Key != "" {
+			sign := hash.Hash([]byte(a.cfg.Key), buf)
+			req = req.SetHeader(hash.HashHeaderKey, base64.StdEncoding.EncodeToString(sign))
+		}
+
+		res, err = req.
 			SetBody(buf).
 			Post(fmt.Sprintf("%s/updates/", a.cfg.Address))
 
 		return
 	})
-
-	if err != nil {
-		return errors.Wrap(err, "resty post")
-	}
-
-	if res.StatusCode() != http.StatusOK {
-		return fmt.Errorf("status: %d", res.StatusCode())
-	}
-
-	return nil
-}
-
-func (a *Agent) makePostRequest(m metric.Metric) error {
-	buf, err := json.Marshal(m)
-	if err != nil {
-		return errors.Wrap(err, "marshal")
-	}
-
-	buf, err = compress(buf)
-	if err != nil {
-		return errors.Wrap(err, "compress")
-	}
-
-	res, err := a.client.R().
-		SetHeader("Content-Type", "application/json").
-		SetHeader("Accept-Encoding", "gzip").
-		SetHeader("Content-Encoding", "gzip").
-		SetBody(buf).
-		Post(fmt.Sprintf("%s/update/", a.cfg.Address))
 
 	if err != nil {
 		return errors.Wrap(err, "resty post")
