@@ -12,6 +12,7 @@ const (
 	defaultReportInterval = 10
 	defaultPollInterval   = 2
 	defaultLogLevel       = "info"
+	defaultRateLimit      = 1024
 )
 
 type Config struct {
@@ -20,6 +21,7 @@ type Config struct {
 	PollInterval   int64  `env:"POLL_INTERVAL"`
 	LogLevel       string `env:"LOG_LEVEL"`
 	Key            string `env:"KEY"`
+	RateLimit      int    `env:"RATE_LIMIT"`
 }
 
 func NewConfig() (*Config, error) {
@@ -33,8 +35,8 @@ func NewConfig() (*Config, error) {
 	flag.StringVar(&cfg.Address, "a", defaultAddress, "server address eg http://localhost:8080")
 	flag.Int64Var(&cfg.ReportInterval, "r", 10, "send report interval default 10 seconds")
 	flag.Int64Var(&cfg.PollInterval, "p", 2, "request metric poll interval default 2 seconds")
-	flag.StringVar(&cfg.LogLevel, "l", defaultLogLevel, "log level")
 	flag.StringVar(&cfg.Key, "k", "", "secret key")
+	flag.IntVar(&cfg.RateLimit, "l", defaultRateLimit, "requests limit default 1024")
 	flag.Parse()
 
 	if err := env.Parse(cfg); err != nil {
