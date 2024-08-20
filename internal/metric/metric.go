@@ -37,13 +37,13 @@ type Metric struct {
 }
 
 type Metrics struct {
-	Mu      *sync.Mutex
+	Mu      *sync.RWMutex
 	Metrics map[string]Metric
 }
 
 func NewMetrics() *Metrics {
 	return &Metrics{
-		Mu:      &sync.Mutex{},
+		Mu:      &sync.RWMutex{},
 		Metrics: make(map[string]Metric),
 	}
 }

@@ -29,6 +29,7 @@ type Config struct {
 	FileStoragePath string `env:"FILE_STORAGE_PATH"`
 	Restore         bool   `env:"RESTORE"`
 	DatabaseDSN     string `env:"DATABASE_DSN"`
+	Key             string `env:"KEY"`
 }
 
 func NewConfig() (*Config, error) {
@@ -43,6 +44,7 @@ func NewConfig() (*Config, error) {
 	flag.StringVar(&cfg.FileStoragePath, "f", "", storePathUsage)
 	flag.BoolVar(&cfg.Restore, "r", defaultRestore, restoreUsage)
 	flag.StringVar(&cfg.DatabaseDSN, "d", "", databaseUsage)
+	flag.StringVar(&cfg.Key, "k", "", "secret key")
 	flag.Parse()
 
 	if err := env.Parse(cfg); err != nil {

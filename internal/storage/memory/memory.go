@@ -11,7 +11,7 @@ import (
 )
 
 type Storage struct {
-	mu      *sync.Mutex
+	mu      *sync.RWMutex
 	storage map[string]metric.Metric
 }
 
@@ -26,13 +26,13 @@ func NewFrom(src io.Reader) (*Storage, error) {
 		s[m.ID] = m
 	}
 
-	return &Storage{storage: s, mu: &sync.Mutex{}}, nil
+	return &Storage{storage: s, mu: &sync.RWMutex{}}, nil
 }
 
 func NewMemStorage() *Storage {
 	s := make(map[string]metric.Metric)
 
-	return &Storage{storage: s, mu: &sync.Mutex{}}
+	return &Storage{storage: s, mu: &sync.RWMutex{}}
 }
 
 func (s *Storage) Persist(_ context.Context, dest io.Writer) error {
@@ -82,8 +82,8 @@ func (s *Storage) Set(_ context.Context, value metric.Metric) error {
 }
 
 func (s *Storage) Get(_ context.Context, key string) (metric.Metric, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	v, ok := s.storage[key]
 	return v, ok

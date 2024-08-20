@@ -8,8 +8,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/nbvehbq/go-metrics-harvester/internal/compress"
+	"github.com/nbvehbq/go-metrics-harvester/internal/hash"
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
+	"github.com/nbvehbq/go-metrics-harvester/internal/middleware"
 	"go.uber.org/zap"
 )
 
@@ -41,12 +43,18 @@ func NewServer(storage Repository, cfg *Config) (*Server, error) {
 		databaseDSN:     cfg.DatabaseDSN,
 	}
 
-	mux.Get("/", logger.WithLogging(compress.WithGzip(s.listMetricHandler)))
-	mux.Get("/ping", logger.WithLogging(s.pingDBHandler))
-	mux.Post(`/update/`, logger.WithLogging(compress.WithGzip(s.updateHandlerJSON)))
-	mux.Post(`/updates/`, logger.WithLogging(compress.WithGzip(s.updatesHandlerJSON)))
-	mux.Post(`/value/`, logger.WithLogging(compress.WithGzip(s.getMetricHandlerJSON)))
-	mux.Get("/value/{type}/{name}", logger.WithLogging(s.getMetricHandler))
+	mdw := []middleware.Middleware{
+		hash.WithHash(cfg.Key),
+		compress.WithGzip,
+		logger.WithLogging,
+	}
+
+	mux.Get(`/`, middleware.Combine(s.listMetricHandler, mdw...))
+	mux.Get(`/ping`, logger.WithLogging(s.pingDBHandler))
+	mux.Post(`/update/`, middleware.Combine(s.updateHandlerJSON, mdw...))
+	mux.Post(`/updates/`, middleware.Combine(s.updatesHandlerJSON, mdw...))
+	mux.Post(`/value/`, middleware.Combine(s.getMetricHandlerJSON, mdw...))
+	mux.Get(`/value/{type}/{name}`, logger.WithLogging(s.getMetricHandler))
 	mux.Post(`/update/{type}/{name}/{value}`, logger.WithLogging(s.updateHandler))
 
 	return s, nil
