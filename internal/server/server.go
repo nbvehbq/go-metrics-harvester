@@ -4,9 +4,11 @@ import (
 	"context"
 	"io"
 	"net/http"
+	_ "net/http/pprof"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	chimiddle "github.com/go-chi/chi/v5/middleware"
 	"github.com/nbvehbq/go-metrics-harvester/internal/compress"
 	"github.com/nbvehbq/go-metrics-harvester/internal/hash"
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
@@ -56,6 +58,8 @@ func NewServer(storage Repository, cfg *Config) (*Server, error) {
 	mux.Post(`/value/`, middleware.Combine(s.getMetricHandlerJSON, mdw...))
 	mux.Get(`/value/{type}/{name}`, logger.WithLogging(s.getMetricHandler))
 	mux.Post(`/update/{type}/{name}/{value}`, logger.WithLogging(s.updateHandler))
+
+	mux.Mount("/debug", chimiddle.Profiler())
 
 	return s, nil
 }
