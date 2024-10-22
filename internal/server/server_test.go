@@ -35,7 +35,10 @@ func TestServer_PingHandler(t *testing.T) {
 	assert.NoError(t, err)
 	srv.pingDBHandler(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Result().StatusCode)
+	res := w.Result()
+	res.Body.Close()
+
+	assert.Equal(t, http.StatusOK, res.StatusCode)
 }
 
 func TestServer_updatesServerJSON(t *testing.T) {
