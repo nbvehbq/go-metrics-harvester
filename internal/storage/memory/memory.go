@@ -1,3 +1,4 @@
+// Memory storage - implementation of Repository interface
 package memory
 
 import (
@@ -10,11 +11,13 @@ import (
 	"github.com/nbvehbq/go-metrics-harvester/internal/storage"
 )
 
+// Storage - хранилище метрик
 type Storage struct {
 	mu      *sync.RWMutex
 	storage map[string]metric.Metric
 }
 
+// NewFrom - creates a new memory storage from io.Reader interface
 func NewFrom(src io.Reader) (*Storage, error) {
 	var list []metric.Metric
 	if err := json.NewDecoder(src).Decode(&list); err != nil {
@@ -29,12 +32,14 @@ func NewFrom(src io.Reader) (*Storage, error) {
 	return &Storage{storage: s, mu: &sync.RWMutex{}}, nil
 }
 
+// NewMemStorage - конструктор для хранения метрик
 func NewMemStorage() *Storage {
 	s := make(map[string]metric.Metric)
 
 	return &Storage{storage: s, mu: &sync.RWMutex{}}
 }
 
+// Persist - save metrics to io.Writer
 func (s *Storage) Persist(_ context.Context, dest io.Writer) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -51,6 +56,7 @@ func (s *Storage) Persist(_ context.Context, dest io.Writer) error {
 	return nil
 }
 
+// Set - update or rewrite metric depends on metric type
 func (s *Storage) Set(_ context.Context, value metric.Metric) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -81,6 +87,7 @@ func (s *Storage) Set(_ context.Context, value metric.Metric) error {
 	return nil
 }
 
+// Get - get metric
 func (s *Storage) Get(_ context.Context, key string) (metric.Metric, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -89,6 +96,7 @@ func (s *Storage) Get(_ context.Context, key string) (metric.Metric, bool) {
 	return v, ok
 }
 
+// List - get all metrics
 func (s *Storage) List(_ context.Context) ([]metric.Metric, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -105,6 +113,7 @@ func (s *Storage) Ping(_ context.Context) error {
 	return storage.ErrNotSupported
 }
 
+// Update - update metrics with new values
 func (s *Storage) Update(_ context.Context, m []metric.Metric) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

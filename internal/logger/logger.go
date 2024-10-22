@@ -30,6 +30,7 @@ func (r *loggingResponseWriter) WriteHeader(statusCode int) {
 	r.responseData.status = statusCode
 }
 
+// Initialize initializes the logger with given log level
 func Initialize(level string) error {
 	lvl, err := zap.ParseAtomicLevel(level)
 	if err != nil {
@@ -48,6 +49,7 @@ func Initialize(level string) error {
 	return nil
 }
 
+// WithLogging is a middleware that logs the start and end of each request
 func WithLogging(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()

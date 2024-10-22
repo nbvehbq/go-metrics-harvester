@@ -15,6 +15,7 @@ const (
 	defaultRateLimit      = 1024
 )
 
+// Config is an agent configuration
 type Config struct {
 	Address        string `env:"ADDRESS"`
 	ReportInterval int64  `env:"REPORT_INTERVAL"`
@@ -24,6 +25,7 @@ type Config struct {
 	RateLimit      int    `env:"RATE_LIMIT"`
 }
 
+// NewConfig returns a new config
 func NewConfig() (*Config, error) {
 	cfg := &Config{
 		Address:        defaultAddress,

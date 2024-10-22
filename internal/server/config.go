@@ -22,6 +22,7 @@ const (
 	databaseUsage      = "database DSN string eg 'postgresql://user:password@localhost:5432/dbname'"
 )
 
+// Config is a server configuration
 type Config struct {
 	Address         string `env:"ADDRESS"`
 	LogLevel        string `env:"LOG_LEVEL"`

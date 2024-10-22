@@ -17,6 +17,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// Repository is a metrics repository interface
 type Repository interface {
 	Set(context.Context, metric.Metric) error
 	Get(context.Context, string) (metric.Metric, bool)
@@ -26,6 +27,7 @@ type Repository interface {
 	Update(context.Context, []metric.Metric) error
 }
 
+// Server is a metrics server
 type Server struct {
 	srv             *http.Server
 	storage         Repository
@@ -34,6 +36,7 @@ type Server struct {
 	databaseDSN     string
 }
 
+// NewServer creates a new server
 func NewServer(storage Repository, cfg *Config) (*Server, error) {
 	mux := chi.NewRouter()
 
@@ -64,6 +67,7 @@ func NewServer(storage Repository, cfg *Config) (*Server, error) {
 	return s, nil
 }
 
+// Run runs the server
 func (s *Server) Run(ctx context.Context) error {
 	logger.Log.Info("Server started.")
 
@@ -97,6 +101,7 @@ func (s *Server) Run(ctx context.Context) error {
 	return nil
 }
 
+// Shutdown gracefully stops the server
 func (s *Server) Shutdown(ctx context.Context) error {
 	logger.Log.Info("Server stoped.")
 	return s.srv.Shutdown(ctx)
