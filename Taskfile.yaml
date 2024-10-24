@@ -29,3 +29,7 @@ tasks:
   mockgen:
     cmds:
       - mockgen -destination=internal/storage/mocks/mock_storage.go -package=mocks github.com/nbvehbq/go-metrics-harvester/internal/server Repository 
+
+  prof:
+    cmds:
+      - curl -s -v 'http://localhost:8080/debug/pprof/profile?seconds=60' > ./profiles/result.pprof

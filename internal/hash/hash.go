@@ -52,6 +52,7 @@ func (h *hashWriter) Close() error {
 	return nil
 }
 
+// WithHash is a middleware that checks the signature in header
 func WithHash(key string) func(http.HandlerFunc) http.HandlerFunc {
 	return func(h http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {

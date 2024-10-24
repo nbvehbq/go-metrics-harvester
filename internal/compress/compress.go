@@ -66,6 +66,7 @@ func (c *compressReader) Close() error {
 	return c.zr.Close()
 }
 
+// WithGzip is a middleware that compresses the response
 func WithGzip(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		originalWriter := w

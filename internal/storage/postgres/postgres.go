@@ -1,3 +1,4 @@
+// Package postgres - implementation of Repository interface
 package postgres
 
 import (
@@ -10,8 +11,8 @@ import (
 	pq "github.com/lib/pq"
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
-	"github.com/nbvehbq/go-metrics-harvester/internal/retry"
 	"github.com/nbvehbq/go-metrics-harvester/internal/storage"
+	"github.com/nbvehbq/go-metrics-harvester/pkg/retry"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )
@@ -26,10 +27,12 @@ const (
 		value = EXCLUDED.value;`
 )
 
+// Storage - implementation of Repository interface
 type Storage struct {
 	db *sqlx.DB
 }
 
+// NewStorage - create new storage
 func NewStorage(ctx context.Context, DSN string) (*Storage, error) {
 	var db *sqlx.DB
 	err := retry.Do(func() (err error) {
@@ -48,6 +51,7 @@ func NewStorage(ctx context.Context, DSN string) (*Storage, error) {
 	return &Storage{db: db}, nil
 }
 
+// NewFrom - creates new storage from io.Reader
 func NewFrom(ctx context.Context, src io.Reader, DSN string) (*Storage, error) {
 	var db *sqlx.DB
 	err := retry.Do(func() (err error) {
@@ -133,6 +137,7 @@ func initDatabaseStructure(ctx context.Context, db *sqlx.DB) error {
 	return nil
 }
 
+// Set - update or rewrite metric depends on metric type
 func (s *Storage) Set(ctx context.Context, value metric.Metric) error {
 	if value.MType == metric.Counter && value.Delta == nil {
 		return storage.ErrMetricMalformed
@@ -149,6 +154,7 @@ func (s *Storage) Set(ctx context.Context, value metric.Metric) error {
 	return nil
 }
 
+// Get - get metric
 func (s *Storage) Get(ctx context.Context, key string) (metric.Metric, bool) {
 	var res metric.Metric
 	err := s.db.GetContext(ctx, &res, `SELECT id, mtype, delta, value FROM metric WHERE id = $1;`, key)
@@ -159,6 +165,7 @@ func (s *Storage) Get(ctx context.Context, key string) (metric.Metric, bool) {
 	return res, err == nil
 }
 
+// List - get all metrics
 func (s *Storage) List(ctx context.Context) ([]metric.Metric, error) {
 	var res []metric.Metric
 	err := s.db.SelectContext(ctx, &res, `SELECT id, mtype, delta, value FROM metric;`)
@@ -170,6 +177,7 @@ func (s *Storage) List(ctx context.Context) ([]metric.Metric, error) {
 	return res, nil
 }
 
+// Persist - save metrics to io.Writer
 func (s *Storage) Persist(ctx context.Context, dest io.Writer) error {
 	list, err := s.List(ctx)
 	if err != nil {
@@ -187,6 +195,7 @@ func (s *Storage) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }
 
+// Update - update metrics with new values
 func (s *Storage) Update(ctx context.Context, m []metric.Metric) error {
 	tx, err := s.db.Begin()
 	if err != nil {

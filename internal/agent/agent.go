@@ -16,7 +16,7 @@ import (
 	"github.com/nbvehbq/go-metrics-harvester/internal/hash"
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
-	"github.com/nbvehbq/go-metrics-harvester/internal/retry"
+	"github.com/nbvehbq/go-metrics-harvester/pkg/retry"
 	"github.com/pkg/errors"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/mem"
@@ -24,17 +24,20 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// Agent is a metrics harvester agent
 type Agent struct {
 	cfg    *Config
 	runner *errgroup.Group
 	client *resty.Client
 }
 
+// NewAgent creates a new agent
 func NewAgent(r *errgroup.Group, cfg *Config) *Agent {
 	c := resty.New()
 	return &Agent{runner: r, cfg: cfg, client: c}
 }
 
+// Run runs the agent
 func (a *Agent) Run(ctx context.Context) {
 	logger.Log.Info("Agent started.")
 	metrics := metric.NewMetrics()

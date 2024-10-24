@@ -4,9 +4,11 @@ import (
 	"context"
 	"io"
 	"net/http"
+	_ "net/http/pprof"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	chimiddle "github.com/go-chi/chi/v5/middleware"
 	"github.com/nbvehbq/go-metrics-harvester/internal/compress"
 	"github.com/nbvehbq/go-metrics-harvester/internal/hash"
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
@@ -15,6 +17,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// Repository is a metrics repository interface
 type Repository interface {
 	Set(context.Context, metric.Metric) error
 	Get(context.Context, string) (metric.Metric, bool)
@@ -24,6 +27,7 @@ type Repository interface {
 	Update(context.Context, []metric.Metric) error
 }
 
+// Server is a metrics server
 type Server struct {
 	srv             *http.Server
 	storage         Repository
@@ -32,6 +36,7 @@ type Server struct {
 	databaseDSN     string
 }
 
+// NewServer creates a new server
 func NewServer(storage Repository, cfg *Config) (*Server, error) {
 	mux := chi.NewRouter()
 
@@ -57,9 +62,12 @@ func NewServer(storage Repository, cfg *Config) (*Server, error) {
 	mux.Get(`/value/{type}/{name}`, logger.WithLogging(s.getMetricHandler))
 	mux.Post(`/update/{type}/{name}/{value}`, logger.WithLogging(s.updateHandler))
 
+	mux.Mount("/debug", chimiddle.Profiler())
+
 	return s, nil
 }
 
+// Run runs the server
 func (s *Server) Run(ctx context.Context) error {
 	logger.Log.Info("Server started.")
 
@@ -93,6 +101,7 @@ func (s *Server) Run(ctx context.Context) error {
 	return nil
 }
 
+// Shutdown gracefully stops the server
 func (s *Server) Shutdown(ctx context.Context) error {
 	logger.Log.Info("Server stoped.")
 	return s.srv.Shutdown(ctx)

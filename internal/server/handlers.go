@@ -261,6 +261,7 @@ func (s *Server) saveToFile(ctx context.Context) (err error) {
 	return nil
 }
 
+// JSONError sends an error message in JSON format
 func JSONError(w http.ResponseWriter, msg string, code int) {
 	res := struct {
 		Err string `json:"error"`

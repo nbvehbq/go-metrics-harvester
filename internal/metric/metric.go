@@ -29,6 +29,7 @@ var (
 	}
 )
 
+// Metric - структура для хранения метрик
 type Metric struct {
 	ID    string   `json:"id" db:"id"`                 // имя метрики
 	MType string   `json:"type" db:"mtype"`            // параметр, принимающий значение gauge или counter
@@ -36,11 +37,13 @@ type Metric struct {
 	Value *float64 `json:"value,omitempty" db:"value"` // значение метрики в случае передачи gauge
 }
 
+// Metrics - хранилище метрик
 type Metrics struct {
 	Mu      *sync.RWMutex
 	Metrics map[string]Metric
 }
 
+// NewMetrics - конструктор для хранения метрик
 func NewMetrics() *Metrics {
 	return &Metrics{
 		Mu:      &sync.RWMutex{},
