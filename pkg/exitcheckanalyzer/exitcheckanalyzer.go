@@ -60,14 +60,9 @@ func checkRunInArgument(exp *ast.CallExpr) bool {
 		if !ok {
 			continue
 		}
-		// ident, ok := exp.X.(*ast.Ident)
-		// if !ok {
-		// 	continue
-		// }
 		if sel.Sel.Name == "Run" {
 			return false
 		}
-		// ast.Print(nil, ident)
 	}
 	return true
 }

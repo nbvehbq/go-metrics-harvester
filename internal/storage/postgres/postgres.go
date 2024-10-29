@@ -170,7 +170,6 @@ func (s *Storage) List(ctx context.Context) ([]metric.Metric, error) {
 	var res []metric.Metric
 	err := s.db.SelectContext(ctx, &res, `SELECT id, mtype, delta, value FROM metric;`)
 	if err != nil {
-		logger.Log.Error("select metric", zap.Error(err))
 		return res, errors.Wrap(err, "select metric")
 	}
 

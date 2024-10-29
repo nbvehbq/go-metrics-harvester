@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -14,7 +15,16 @@ import (
 	"github.com/nbvehbq/go-metrics-harvester/internal/storage/postgres"
 )
 
+var (
+	buildVersion string = "N/A"
+	buildDate    string = "N/A"
+	buildCommit  string = "N/A"
+)
+
 func main() {
+	greetings := "Build version: %s\nBuild date: %s\nBuild commit: %s\n\n"
+	fmt.Printf(greetings, buildVersion, buildDate, buildCommit)
+
 	cfg, err := server.NewConfig()
 
 	if err != nil {
