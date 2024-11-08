@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -14,15 +15,24 @@ import (
 	"github.com/nbvehbq/go-metrics-harvester/internal/storage/postgres"
 )
 
+var (
+	buildVersion string = "N/A"
+	buildDate    string = "N/A"
+	buildCommit  string = "N/A"
+)
+
 func main() {
+	greetings := "Build version: %s\nBuild date: %s\nBuild commit: %s\n\n"
+	fmt.Printf(greetings, buildVersion, buildDate, buildCommit)
+
 	cfg, err := server.NewConfig()
 
 	if err != nil {
 		log.Fatal(err, "Load config")
 	}
 
-	if err := logger.Initialize(cfg.LogLevel); err != nil {
-		log.Fatal(err, "initialize logger")
+	if errInit := logger.Initialize(cfg.LogLevel); errInit != nil {
+		log.Fatal(errInit, "initialize logger")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -38,25 +48,25 @@ func main() {
 	}
 
 	if cfg.Restore {
-		file, err := os.OpenFile(cfg.FileStoragePath, os.O_RDONLY|os.O_CREATE, 0666)
-		if err != nil {
-			log.Fatal(err, "open storage file")
+		file, errOpen := os.OpenFile(cfg.FileStoragePath, os.O_RDONLY|os.O_CREATE, 0666)
+		if errOpen != nil {
+			log.Fatal(errOpen, "open storage file")
 		}
-		fi, err := file.Stat()
-		if err != nil {
-			log.Fatal(err, "could not obtain stat")
+		fi, errOpen := file.Stat()
+		if errOpen != nil {
+			log.Fatal(errOpen, "could not obtain stat")
 		}
 
 		if fi.Size() > 0 {
 			if cfg.DatabaseDSN == "" {
-				db, err = memory.NewFrom(file)
-				if err != nil {
-					log.Fatal(err, " restor storage from file")
+				db, errOpen = memory.NewFrom(file)
+				if errOpen != nil {
+					log.Fatal(errOpen, " restor storage from file")
 				}
 			} else {
-				db, err = postgres.NewFrom(ctx, file, cfg.DatabaseDSN)
-				if err != nil {
-					log.Fatal(err, " restor storage from file")
+				db, errOpen = postgres.NewFrom(ctx, file, cfg.DatabaseDSN)
+				if errOpen != nil {
+					log.Fatal(errOpen, " restor storage from file")
 				}
 			}
 		}

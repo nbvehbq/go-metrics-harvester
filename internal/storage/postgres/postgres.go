@@ -62,17 +62,17 @@ func NewFrom(ctx context.Context, src io.Reader, DSN string) (*Storage, error) {
 		return nil, errors.Wrap(err, "connect to db")
 	}
 
-	if err := initDatabaseStructure(ctx, db); err != nil {
-		return nil, errors.Wrap(err, "init db")
+	if errInit := initDatabaseStructure(ctx, db); errInit != nil {
+		return nil, errors.Wrap(errInit, "init db")
 	}
 
-	if err := clearDatabase(ctx, db); err != nil {
-		return nil, errors.Wrap(err, "clear db")
+	if errClear := clearDatabase(ctx, db); errClear != nil {
+		return nil, errors.Wrap(errClear, "clear db")
 	}
 
 	var list []metric.Metric
-	if err := json.NewDecoder(src).Decode(&list); err != nil {
-		return nil, err
+	if errDec := json.NewDecoder(src).Decode(&list); errDec != nil {
+		return nil, errDec
 	}
 
 	tx, err := db.Begin()
@@ -170,7 +170,6 @@ func (s *Storage) List(ctx context.Context) ([]metric.Metric, error) {
 	var res []metric.Metric
 	err := s.db.SelectContext(ctx, &res, `SELECT id, mtype, delta, value FROM metric;`)
 	if err != nil {
-		logger.Log.Error("select metric", zap.Error(err))
 		return res, errors.Wrap(err, "select metric")
 	}
 

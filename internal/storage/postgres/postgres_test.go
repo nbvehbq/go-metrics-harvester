@@ -1,11 +1,11 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
-
 	"github.com/jmoiron/sqlx"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
 	"github.com/nbvehbq/go-metrics-harvester/internal/storage"
@@ -33,6 +33,11 @@ func TestPostgres_Set(t *testing.T) {
 		{
 			name:    "set invalid type",
 			value:   metric.Metric{ID: "three", MType: metric.Counter, Value: ptr(54.0)},
+			wantErr: true,
+		},
+		{
+			name:    "set invalid type 2",
+			value:   metric.Metric{ID: "three", MType: metric.Gauge, Value: nil},
 			wantErr: true,
 		},
 	}
@@ -139,6 +144,110 @@ func TestPostgres_List(t *testing.T) {
 			res, err := st.List(context.Background())
 			assert.NoError(t, err)
 			assert.Equal(t, tt.want, res)
+		})
+	}
+}
+
+func TestPostgres_Update(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   []metric.Metric
+		wantErr bool
+	}{
+		{
+			name: "update metrics",
+			value: []metric.Metric{
+				{ID: "one", MType: metric.Gauge, Value: ptr(54.0)},
+			},
+			wantErr: false,
+		},
+		// {
+		// 	name: "begin tx error",
+		// 	value: []metric.Metric{
+		// 		{ID: "one", MType: metric.Gauge, Value: ptr(54.0)},
+		// 	},
+		// 	wantErr: true,
+		// },
+	}
+
+	db, mock, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer db.Close()
+
+	st := &Storage{
+		sqlx.NewDb(db, "sqlmock"),
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock.ExpectBegin()
+			mock.ExpectPrepare(`INSERT INTO metric`).
+				ExpectExec().
+				WillReturnResult(sqlmock.NewResult(1, 1))
+			mock.ExpectCommit()
+
+			err := st.Update(context.Background(), tt.value)
+			assert.Equal(t, tt.wantErr, err != nil)
+		})
+	}
+}
+
+func TestPostgres_initDatabase(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectExec(`CREATE TABLE IF NOT EXISTS "metric"`).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	initDatabaseStructure(context.Background(), sqlx.NewDb(db, "sqlmock"))
+}
+
+func TestPostgres_clearDatabase(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectExec(`truncate table "metric"`).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	clearDatabase(context.Background(), sqlx.NewDb(db, "sqlmock"))
+}
+
+func TestPostgres_Persist(t *testing.T) {
+	tests := []struct {
+		name string
+		want []metric.Metric
+		res  bool
+	}{
+		{
+			name: "get gauge",
+			want: []metric.Metric{
+				{ID: "one", MType: metric.Gauge, Value: ptr(54.0)},
+			},
+			res: true,
+		},
+	}
+
+	db, mock, err := sqlmock.New()
+	assert.NoError(t, err)
+	defer db.Close()
+
+	st := &Storage{
+		sqlx.NewDb(db, "sqlmock"),
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rows := sqlmock.NewRows([]string{"id", "mtype", "delta", "value"})
+			for _, v := range tt.want {
+				rows.AddRow(v.ID, v.MType, v.Delta, v.Value)
+			}
+			mock.ExpectQuery(`SELECT id, mtype, delta, value FROM metric`).
+				WillReturnRows(rows)
+
+			buf := new(bytes.Buffer)
+			err := st.Persist(context.Background(), buf)
+			assert.NoError(t, err)
 		})
 	}
 }

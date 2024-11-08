@@ -20,6 +20,7 @@ tasks:
     cmds:
       - go build -o ./cmd/server/server ./cmd/server/main.go
       - go build -o ./cmd/agent/agent ./cmd/agent/main.go
+      - go build -o ./cmd/staticlint ./cmd/staticlint/main.go
 
   clear:
     desc: "Clear building artifacts"
@@ -33,3 +34,11 @@ tasks:
   prof:
     cmds:
       - curl -s -v 'http://localhost:8080/debug/pprof/profile?seconds=60' > ./profiles/result.pprof
+  
+  test:
+    cmds:
+      - go test ./... coverprofile cover.out && go tool cover -func cover.out && go tool cover -html=cover.out
+
+  lint:
+    cmds:
+      - go run ./cmd/staticlint/main.go ./...
