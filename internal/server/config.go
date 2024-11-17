@@ -31,6 +31,7 @@ type Config struct {
 	Restore         bool   `env:"RESTORE"`
 	DatabaseDSN     string `env:"DATABASE_DSN"`
 	Key             string `env:"KEY"`
+	CryptoKey       string `env:"CRYPTO_KEY"`
 }
 
 func NewConfig() (*Config, error) {
@@ -46,6 +47,7 @@ func NewConfig() (*Config, error) {
 	flag.BoolVar(&cfg.Restore, "r", defaultRestore, restoreUsage)
 	flag.StringVar(&cfg.DatabaseDSN, "d", "", databaseUsage)
 	flag.StringVar(&cfg.Key, "k", "", "secret key")
+	flag.StringVar(&cfg.CryptoKey, "crypto-key", "", "secret assymetric key")
 	flag.Parse()
 
 	if err := env.Parse(cfg); err != nil {

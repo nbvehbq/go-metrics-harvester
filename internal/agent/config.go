@@ -23,6 +23,7 @@ type Config struct {
 	LogLevel       string `env:"LOG_LEVEL"`
 	Key            string `env:"KEY"`
 	RateLimit      int    `env:"RATE_LIMIT"`
+	CryptoKey      string `env:"CRYPTO_KEY"`
 }
 
 // NewConfig returns a new config
@@ -39,6 +40,7 @@ func NewConfig() (*Config, error) {
 	flag.Int64Var(&cfg.PollInterval, "p", 2, "request metric poll interval default 2 seconds")
 	flag.StringVar(&cfg.Key, "k", "", "secret key")
 	flag.IntVar(&cfg.RateLimit, "l", defaultRateLimit, "requests limit default 1024")
+	flag.StringVar(&cfg.CryptoKey, "crypto-key", "", "public key")
 	flag.Parse()
 
 	if err := env.Parse(cfg); err != nil {

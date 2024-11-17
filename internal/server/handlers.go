@@ -1,9 +1,16 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
+	"hash"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -215,8 +222,30 @@ func (s *Server) updateHandler(res http.ResponseWriter, req *http.Request) {
 }
 
 func (s *Server) updatesHandlerJSON(res http.ResponseWriter, req *http.Request) {
-	var me []metric.Metric
+	if s.secretKey != nil {
+		privateKeyBlock, _ := pem.Decode(s.secretKey)
+		privateKey, err := x509.ParsePKCS1PrivateKey(privateKeyBlock.Bytes)
+		if err != nil {
+			JSONError(res, err.Error(), http.StatusBadRequest)
+			return
+		}
 
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			http.Error(res, "can't read body", http.StatusBadRequest)
+			return
+		}
+
+		plaintBody, err := decryptOAEP(sha256.New(), nil, privateKey, body, nil)
+		if err != nil {
+			JSONError(res, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		req.Body = io.NopCloser(bytes.NewBuffer(plaintBody))
+	}
+
+	var me []metric.Metric
 	if err := json.NewDecoder(req.Body).Decode(&me); err != nil {
 		JSONError(res, err.Error(), http.StatusBadRequest)
 		return
@@ -269,4 +298,26 @@ func JSONError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(res)
+}
+
+func decryptOAEP(hash hash.Hash, random io.Reader, private *rsa.PrivateKey, msg []byte, label []byte) ([]byte, error) {
+	msgLen := len(msg)
+	step := private.PublicKey.Size()
+	var decryptedBytes []byte
+
+	for start := 0; start < msgLen; start += step {
+		finish := start + step
+		if finish > msgLen {
+			finish = msgLen
+		}
+
+		decryptedBlockBytes, err := rsa.DecryptOAEP(hash, random, private, msg[start:finish], label)
+		if err != nil {
+			return nil, err
+		}
+
+		decryptedBytes = append(decryptedBytes, decryptedBlockBytes...)
+	}
+
+	return decryptedBytes, nil
 }
