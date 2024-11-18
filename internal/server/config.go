@@ -1,9 +1,11 @@
 package server
 
 import (
+	"encoding/json"
 	"flag"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/caarlos0/env/v11"
 )
@@ -22,6 +24,15 @@ const (
 	databaseUsage      = "database DSN string eg 'postgresql://user:password@localhost:5432/dbname'"
 )
 
+type CfgFile struct {
+	Address       string `json:"address"`
+	Restore       bool   `json:"restore"`
+	StoreInterval string `json:"store_interval"`
+	StoreFile     string `json:"store_file"`
+	DatabaseDSN   string `json:"database_dsn"`
+	CryptoKey     string `json:"crypto_key"`
+}
+
 // Config is a server configuration
 type Config struct {
 	Address         string `env:"ADDRESS"`
@@ -32,6 +43,7 @@ type Config struct {
 	DatabaseDSN     string `env:"DATABASE_DSN"`
 	Key             string `env:"KEY"`
 	CryptoKey       string `env:"CRYPTO_KEY"`
+	ConfigFile      string `env:"CONFIG"`
 }
 
 func NewConfig() (*Config, error) {
@@ -48,10 +60,36 @@ func NewConfig() (*Config, error) {
 	flag.StringVar(&cfg.DatabaseDSN, "d", "", databaseUsage)
 	flag.StringVar(&cfg.Key, "k", "", "secret key")
 	flag.StringVar(&cfg.CryptoKey, "crypto-key", "", "secret assymetric key")
+	flag.StringVar(&cfg.ConfigFile, "c", "", "json file holding configuration")
 	flag.Parse()
 
 	if err := env.Parse(cfg); err != nil {
 		return nil, err
+	}
+
+	if cfg.ConfigFile != "" {
+		file, err := os.Open(cfg.ConfigFile)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		var fileCfg CfgFile
+		if err := json.NewDecoder(file).Decode(&fileCfg); err != nil {
+			return nil, err
+		}
+
+		si, err := time.ParseDuration(fileCfg.StoreInterval)
+		if err != nil {
+			return nil, err
+		}
+
+		cfg.Address = fileCfg.Address
+		cfg.Restore = fileCfg.Restore
+		cfg.StoreInterval = int64(si.Seconds())
+		cfg.FileStoragePath = fileCfg.StoreFile
+		cfg.DatabaseDSN = fileCfg.DatabaseDSN
+		cfg.CryptoKey = fileCfg.CryptoKey
 	}
 
 	if strings.HasPrefix(cfg.Address, "http://") {
