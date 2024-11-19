@@ -87,13 +87,9 @@ func (s *Server) Run(ctx context.Context) error {
 	logger.Log.Info("Server started.")
 
 	storeInterval := time.Second * time.Duration(s.storeInterval)
-	wait := make(chan struct{}, 1)
 
 	if s.storeInterval > 0 {
 		go func() {
-			defer func() {
-				wait <- struct{}{}
-			}()
 			for {
 				select {
 				case <-ctx.Done():
@@ -110,8 +106,6 @@ func (s *Server) Run(ctx context.Context) error {
 	if err := s.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}
-
-	<-wait
 
 	return nil
 }

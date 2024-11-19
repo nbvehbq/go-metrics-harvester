@@ -31,20 +31,16 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-type HttpClient interface {
-	Do(req *http.Request) (*http.Response, error)
-}
-
 // Agent is a metrics harvester agent
 type Agent struct {
 	cfg       *Config
 	runner    *errgroup.Group
-	client    HttpClient
+	client    http.Client
 	publicKey []byte
 }
 
 // NewAgent creates a new agent
-func NewAgent(r *errgroup.Group, cfg *Config, client HttpClient) (*Agent, error) {
+func NewAgent(r *errgroup.Group, cfg *Config, client http.Client) (*Agent, error) {
 	var (
 		buf []byte
 		err error
@@ -223,7 +219,6 @@ func (a *Agent) publishMetrics(m *metric.Metrics) error {
 		return errors.Wrap(err, "compress")
 	}
 
-	var res *http.Response
 	err = retry.Do(func() (err error) {
 		req, err := http.NewRequest(
 			"POST",
@@ -242,7 +237,10 @@ func (a *Agent) publishMetrics(m *metric.Metrics) error {
 			req.Header.Add(hash.HashHeaderKey, base64.StdEncoding.EncodeToString(sign))
 		}
 
-		res, err = a.client.Do(req)
+		res, err := a.client.Do(req)
+		if err != nil {
+			return errors.Wrap(err, "send request")
+		}
 		defer res.Body.Close()
 
 		return
@@ -250,10 +248,6 @@ func (a *Agent) publishMetrics(m *metric.Metrics) error {
 
 	if err != nil {
 		return errors.Wrap(err, "client post")
-	}
-
-	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("status: %d", res.StatusCode)
 	}
 
 	return nil

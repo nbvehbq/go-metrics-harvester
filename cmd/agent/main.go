@@ -36,14 +36,14 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	runner, ctx := errgroup.WithContext(ctx)
 
-	agent, err := agent.NewAgent(runner, cfg, &http.Client{})
+	agent, err := agent.NewAgent(runner, cfg, *http.DefaultClient)
 	if err != nil {
 		log.Fatal(err, "initialize agent")
 	}
 	agent.Run(ctx)
 
 	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
+	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 
 	<-stop
 	cancel()

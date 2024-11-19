@@ -487,6 +487,24 @@ func TestServer_updateHandler(t *testing.T) {
 				contentType: "text/plain; charset=utf-8",
 			},
 		},
+		{
+			name: "success update counter",
+			arg:  arg{name: "test", mtype: "counter", value: "42"},
+			want: want{
+				code:        200,
+				response:    `{"status":"ok"}`,
+				contentType: "text/plain",
+			},
+		},
+		{
+			name: "success update gauge",
+			arg:  arg{name: "test", mtype: "gauge", value: "0.5"},
+			want: want{
+				code:        200,
+				response:    `{"status":"ok"}`,
+				contentType: "text/plain",
+			},
+		},
 	}
 
 	ctrl := gomock.NewController(t)
@@ -504,11 +522,12 @@ func TestServer_updateHandler(t *testing.T) {
 			rctx.URLParams.Add("type", test.arg.mtype)
 			rctx.URLParams.Add("name", test.arg.name)
 			rctx.URLParams.Add("value", test.arg.value)
-			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+			ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+			req = req.WithContext(ctx)
 			w := httptest.NewRecorder()
 
 			m.EXPECT().
-				Set(rctx, test.arg.mtype).
+				Set(ctx, gomock.Any()).
 				Return(nil).
 				AnyTimes()
 
@@ -592,6 +611,30 @@ func TestServer_updatesServer_decrypt(t *testing.T) {
 			assert.Equal(t, test.want.contentType, res.Header.Get("Content-Type"))
 		})
 	}
+}
+
+func TestServer_saveToFile(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	m := mocks.NewMockRepository(ctrl)
+
+	path, err := os.CreateTemp("", "test")
+	assert.NoError(t, err)
+
+	m.EXPECT().
+		Persist(gomock.Any(), gomock.Any()).
+		Return(nil).AnyTimes()
+
+	err = path.Close()
+	assert.NoError(t, err)
+
+	srv, err := NewServer(m, &Config{
+		FileStoragePath: path.Name(),
+	})
+	assert.NoError(t, err)
+
+	err = srv.saveToFile(context.Background())
+	assert.NoError(t, err)
 }
 
 func generateCert() (string, []byte, error) {
