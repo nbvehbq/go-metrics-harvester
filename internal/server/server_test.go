@@ -3,11 +3,19 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	xhash "hash"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -70,6 +78,13 @@ func TestServer_updatesServerJSON(t *testing.T) {
 		{
 			name: "wrong type",
 			body: []byte(`[{"id":"test","type":"histogram","delta":42}]`),
+			want: want{
+				code:        400,
+				contentType: "application/json",
+			},
+		}, {
+			name: "unmarshal error",
+			body: []byte(`[{"id":"test","type":"gauge","delta":42.0}]`),
 			want: want{
 				code:        400,
 				contentType: "application/json",
@@ -472,6 +487,24 @@ func TestServer_updateHandler(t *testing.T) {
 				contentType: "text/plain; charset=utf-8",
 			},
 		},
+		{
+			name: "success update counter",
+			arg:  arg{name: "test", mtype: "counter", value: "42"},
+			want: want{
+				code:        200,
+				response:    `{"status":"ok"}`,
+				contentType: "text/plain",
+			},
+		},
+		{
+			name: "success update gauge",
+			arg:  arg{name: "test", mtype: "gauge", value: "0.5"},
+			want: want{
+				code:        200,
+				response:    `{"status":"ok"}`,
+				contentType: "text/plain",
+			},
+		},
 	}
 
 	ctrl := gomock.NewController(t)
@@ -489,11 +522,12 @@ func TestServer_updateHandler(t *testing.T) {
 			rctx.URLParams.Add("type", test.arg.mtype)
 			rctx.URLParams.Add("name", test.arg.name)
 			rctx.URLParams.Add("value", test.arg.value)
-			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+			ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+			req = req.WithContext(ctx)
 			w := httptest.NewRecorder()
 
 			m.EXPECT().
-				Set(rctx, test.arg.mtype).
+				Set(ctx, gomock.Any()).
 				Return(nil).
 				AnyTimes()
 
@@ -507,4 +541,154 @@ func TestServer_updateHandler(t *testing.T) {
 			assert.Equal(t, test.want.contentType, res.Header.Get("Content-Type"))
 		})
 	}
+}
+
+func TestServer_updatesServer_decrypt(t *testing.T) {
+	type want struct {
+		code        int
+		contentType string
+	}
+	tests := []struct {
+		name string
+		body []byte
+		want want
+	}{
+		{
+			name: "success decrypt body",
+			body: []byte(`[{"id":"test","type":"gauge","delta":42}]`),
+			want: want{
+				code:        200,
+				contentType: "application/json",
+			},
+		},
+		{
+			name: "wrong flat body",
+			body: []byte(`[{"id":"test","type":"counter","value":42}]`),
+			want: want{
+				code:        400,
+				contentType: "application/json",
+			},
+		},
+	}
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	m := mocks.NewMockRepository(ctrl)
+
+	keyFile, cert, err := generateCert()
+	assert.NoError(t, err)
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+
+			m.EXPECT().
+				Update(gomock.Any(), gomock.Any()).
+				Return(nil).
+				AnyTimes()
+
+			publicKeyBlock, _ := pem.Decode(cert)
+			publicKey, err := x509.ParsePKIXPublicKey(publicKeyBlock.Bytes)
+			assert.NoError(t, err)
+
+			var body []byte
+			if test.want.code == 200 {
+				body, err = encryptOAEP(sha256.New(), rand.Reader, publicKey.(*rsa.PublicKey), test.body, nil)
+				assert.NoError(t, err)
+			} else {
+				body = test.body
+			}
+			req := httptest.NewRequest(http.MethodPost, "/updates", bytes.NewBuffer(body))
+			srv, err := NewServer(m, &Config{
+				CryptoKey: keyFile,
+			})
+			assert.NoError(t, err)
+			srv.updatesHandlerJSON(w, req)
+
+			res := w.Result()
+			res.Body.Close()
+			assert.Equal(t, test.want.code, res.StatusCode)
+			assert.Equal(t, test.want.contentType, res.Header.Get("Content-Type"))
+		})
+	}
+}
+
+func TestServer_saveToFile(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	m := mocks.NewMockRepository(ctrl)
+
+	path, err := os.CreateTemp("", "test")
+	assert.NoError(t, err)
+
+	m.EXPECT().
+		Persist(gomock.Any(), gomock.Any()).
+		Return(nil).AnyTimes()
+
+	err = path.Close()
+	assert.NoError(t, err)
+
+	srv, err := NewServer(m, &Config{
+		FileStoragePath: path.Name(),
+	})
+	assert.NoError(t, err)
+
+	err = srv.saveToFile(context.Background())
+	assert.NoError(t, err)
+}
+
+func generateCert() (string, []byte, error) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 4096)
+	if err != nil {
+		return "", nil, err
+	}
+
+	certBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		return "", nil, err
+	}
+
+	var certPEM bytes.Buffer
+	pem.Encode(&certPEM, &pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: certBytes,
+	})
+
+	var privateKeyPEM bytes.Buffer
+	pem.Encode(&privateKeyPEM, &pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
+	})
+
+	file, err := os.CreateTemp("", "test")
+	if err != nil {
+		return "", nil, err
+	}
+	defer file.Close()
+
+	file.Write(privateKeyPEM.Bytes())
+
+	return file.Name(), certPEM.Bytes(), nil
+}
+
+func encryptOAEP(hash xhash.Hash, random io.Reader, public *rsa.PublicKey, msg []byte, label []byte) ([]byte, error) {
+	msgLen := len(msg)
+	step := public.Size() - 2*hash.Size() - 2
+	var encryptedBytes []byte
+
+	for start := 0; start < msgLen; start += step {
+		finish := start + step
+		if finish > msgLen {
+			finish = msgLen
+		}
+
+		encryptedBlockBytes, err := rsa.EncryptOAEP(hash, random, public, msg[start:finish], label)
+		if err != nil {
+			return nil, err
+		}
+
+		encryptedBytes = append(encryptedBytes, encryptedBlockBytes...)
+	}
+
+	return encryptedBytes, nil
 }

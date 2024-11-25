@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	_ "net/http/pprof"
+	"os"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -14,6 +15,7 @@ import (
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
 	"github.com/nbvehbq/go-metrics-harvester/internal/middleware"
+	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )
 
@@ -34,10 +36,22 @@ type Server struct {
 	storeInterval   int64
 	fileStoragePath string
 	databaseDSN     string
+	secretKey       []byte
 }
 
 // NewServer creates a new server
 func NewServer(storage Repository, cfg *Config) (*Server, error) {
+	var (
+		buf []byte
+		err error
+	)
+	if cfg.CryptoKey != "" {
+		buf, err = os.ReadFile(cfg.CryptoKey)
+		if err != nil {
+			return nil, errors.Wrap(err, "open private key filename")
+		}
+	}
+
 	mux := chi.NewRouter()
 
 	s := &Server{
@@ -46,6 +60,7 @@ func NewServer(storage Repository, cfg *Config) (*Server, error) {
 		storeInterval:   cfg.StoreInterval,
 		fileStoragePath: cfg.FileStoragePath,
 		databaseDSN:     cfg.DatabaseDSN,
+		secretKey:       buf,
 	}
 
 	mdw := []middleware.Middleware{
@@ -72,13 +87,9 @@ func (s *Server) Run(ctx context.Context) error {
 	logger.Log.Info("Server started.")
 
 	storeInterval := time.Second * time.Duration(s.storeInterval)
-	wait := make(chan struct{}, 1)
 
 	if s.storeInterval > 0 {
 		go func() {
-			defer func() {
-				wait <- struct{}{}
-			}()
 			for {
 				select {
 				case <-ctx.Done():
@@ -95,8 +106,6 @@ func (s *Server) Run(ctx context.Context) error {
 	if err := s.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}
-
-	<-wait
 
 	return nil
 }

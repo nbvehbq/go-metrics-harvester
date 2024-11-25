@@ -1,8 +1,11 @@
 package agent
 
 import (
+	"encoding/json"
 	"flag"
 	"net/url"
+	"os"
+	"time"
 
 	"github.com/caarlos0/env/v11"
 )
@@ -23,6 +26,15 @@ type Config struct {
 	LogLevel       string `env:"LOG_LEVEL"`
 	Key            string `env:"KEY"`
 	RateLimit      int    `env:"RATE_LIMIT"`
+	CryptoKey      string `env:"CRYPTO_KEY"`
+	ConfigFile     string `env:"CONFIG"`
+}
+
+type CfgFile struct {
+	Address        string `json:"address"`
+	ReportInterval string `json:"report_interval"`
+	PollInterval   string `json:"poll_interval"`
+	CryptoKey      string `json:"crypto_key"`
 }
 
 // NewConfig returns a new config
@@ -39,10 +51,39 @@ func NewConfig() (*Config, error) {
 	flag.Int64Var(&cfg.PollInterval, "p", 2, "request metric poll interval default 2 seconds")
 	flag.StringVar(&cfg.Key, "k", "", "secret key")
 	flag.IntVar(&cfg.RateLimit, "l", defaultRateLimit, "requests limit default 1024")
+	flag.StringVar(&cfg.CryptoKey, "crypto-key", "", "public key")
+	flag.StringVar(&cfg.ConfigFile, "c", "", "json file holding configuration")
 	flag.Parse()
 
 	if err := env.Parse(cfg); err != nil {
 		return nil, err
+	}
+
+	if cfg.ConfigFile != "" {
+		file, err := os.Open(cfg.ConfigFile)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		var fileCfg CfgFile
+		if err := json.NewDecoder(file).Decode(&fileCfg); err != nil {
+			return nil, err
+		}
+
+		ri, err := time.ParseDuration(fileCfg.ReportInterval)
+		if err != nil {
+			return nil, err
+		}
+		pi, err := time.ParseDuration(fileCfg.PollInterval)
+		if err != nil {
+			return nil, err
+		}
+
+		cfg.Address = fileCfg.Address
+		cfg.ReportInterval = int64(ri.Seconds())
+		cfg.PollInterval = int64(pi.Seconds())
+		cfg.CryptoKey = fileCfg.CryptoKey
 	}
 
 	u, err := url.Parse(cfg.Address)

@@ -4,15 +4,22 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	crand "crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
+	xhash "hash"
+	"io"
 	"math/rand"
 	"net/http"
+	"os"
 	"runtime"
 	"time"
 
-	"github.com/go-resty/resty/v2"
 	"github.com/nbvehbq/go-metrics-harvester/internal/hash"
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
@@ -26,15 +33,26 @@ import (
 
 // Agent is a metrics harvester agent
 type Agent struct {
-	cfg    *Config
-	runner *errgroup.Group
-	client *resty.Client
+	cfg       *Config
+	runner    *errgroup.Group
+	client    http.Client
+	publicKey []byte
 }
 
 // NewAgent creates a new agent
-func NewAgent(r *errgroup.Group, cfg *Config) *Agent {
-	c := resty.New()
-	return &Agent{runner: r, cfg: cfg, client: c}
+func NewAgent(r *errgroup.Group, cfg *Config, client http.Client) (*Agent, error) {
+	var (
+		buf []byte
+		err error
+	)
+	if cfg.CryptoKey != "" {
+		buf, err = os.ReadFile(cfg.CryptoKey)
+		if err != nil {
+			return nil, errors.Wrap(err, "open public key filename")
+		}
+	}
+
+	return &Agent{runner: r, cfg: cfg, client: client, publicKey: buf}, nil
 }
 
 // Run runs the agent
@@ -183,36 +201,53 @@ func (a *Agent) publishMetrics(m *metric.Metrics) error {
 		return errors.Wrap(err, "marshal")
 	}
 
+	if a.publicKey != nil {
+		publicKeyBlock, _ := pem.Decode(a.publicKey)
+		publicKey, err := x509.ParsePKIXPublicKey(publicKeyBlock.Bytes)
+		if err != nil {
+			return errors.Wrap(err, "parse public key")
+		}
+
+		buf, err = encryptOAEP(sha256.New(), crand.Reader, publicKey.(*rsa.PublicKey), buf, nil)
+		if err != nil {
+			return errors.Wrap(err, "encrypt body")
+		}
+	}
+
 	buf, err = compress(buf)
 	if err != nil {
 		return errors.Wrap(err, "compress")
 	}
 
-	var res *resty.Response
 	err = retry.Do(func() (err error) {
-		req := a.client.R().
-			SetHeader("Content-Type", "application/json").
-			SetHeader("Accept-Encoding", "gzip").
-			SetHeader("Content-Encoding", "gzip")
+		req, err := http.NewRequest(
+			"POST",
+			fmt.Sprintf("%s/updates/", a.cfg.Address),
+			bytes.NewReader(buf))
+		if err != nil {
+			return errors.Wrap(err, "new request")
+		}
+
+		req.Header.Add("Content-Type", "application/json")
+		req.Header.Add("Accept-Encoding", "gzip")
+		req.Header.Add("Content-Encoding", "gzip")
 
 		if a.cfg.Key != "" {
 			sign := hash.Hash([]byte(a.cfg.Key), buf)
-			req = req.SetHeader(hash.HashHeaderKey, base64.StdEncoding.EncodeToString(sign))
+			req.Header.Add(hash.HashHeaderKey, base64.StdEncoding.EncodeToString(sign))
 		}
 
-		res, err = req.
-			SetBody(buf).
-			Post(fmt.Sprintf("%s/updates/", a.cfg.Address))
+		res, err := a.client.Do(req)
+		if err != nil {
+			return errors.Wrap(err, "send request")
+		}
+		defer res.Body.Close()
 
 		return
 	})
 
 	if err != nil {
-		return errors.Wrap(err, "resty post")
-	}
-
-	if res.StatusCode() != http.StatusOK {
-		return fmt.Errorf("status: %d", res.StatusCode())
+		return errors.Wrap(err, "client post")
 	}
 
 	return nil
@@ -248,4 +283,26 @@ func (a *Agent) worker(ctx context.Context, jobs <-chan *metric.Metrics, results
 			return nil
 		}
 	}
+}
+
+func encryptOAEP(hash xhash.Hash, random io.Reader, public *rsa.PublicKey, msg []byte, label []byte) ([]byte, error) {
+	msgLen := len(msg)
+	step := public.Size() - 2*hash.Size() - 2
+	var encryptedBytes []byte
+
+	for start := 0; start < msgLen; start += step {
+		finish := start + step
+		if finish > msgLen {
+			finish = msgLen
+		}
+
+		encryptedBlockBytes, err := rsa.EncryptOAEP(hash, random, public, msg[start:finish], label)
+		if err != nil {
+			return nil, err
+		}
+
+		encryptedBytes = append(encryptedBytes, encryptedBlockBytes...)
+	}
+
+	return encryptedBytes, nil
 }
