@@ -8,10 +8,9 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/pem"
-	xhash "hash"
-	"io"
 	"testing"
 
+	"github.com/nbvehbq/go-metrics-harvester/internal/crypto"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
 	"github.com/stretchr/testify/assert"
 )
@@ -128,27 +127,5 @@ func decrypt(buf, key []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return decryptOAEP(sha256.New(), nil, privateKey, buf, nil)
-}
-
-func decryptOAEP(hash xhash.Hash, random io.Reader, private *rsa.PrivateKey, msg []byte, label []byte) ([]byte, error) {
-	msgLen := len(msg)
-	step := private.PublicKey.Size()
-	var decryptedBytes []byte
-
-	for start := 0; start < msgLen; start += step {
-		finish := start + step
-		if finish > msgLen {
-			finish = msgLen
-		}
-
-		decryptedBlockBytes, err := rsa.DecryptOAEP(hash, random, private, msg[start:finish], label)
-		if err != nil {
-			return nil, err
-		}
-
-		decryptedBytes = append(decryptedBytes, decryptedBlockBytes...)
-	}
-
-	return decryptedBytes, nil
+	return crypto.DecryptOAEP(sha256.New(), privateKey, buf, nil)
 }

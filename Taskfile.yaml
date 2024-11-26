@@ -20,7 +20,7 @@ tasks:
     cmds:
       - go build -o ./cmd/server/server ./cmd/server/main.go
       - go build -o ./cmd/agent/agent ./cmd/agent/main.go
-      - go build -o ./cmd/staticlint ./cmd/staticlint/main.go
+      - go build -o ./cmd/staticlint/staticlint ./cmd/staticlint/main.go
 
   clear:
     desc: "Clear building artifacts"

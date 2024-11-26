@@ -11,8 +11,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	xhash "hash"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,6 +18,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/golang/mock/gomock"
+	"github.com/nbvehbq/go-metrics-harvester/internal/crypto"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
 	"github.com/nbvehbq/go-metrics-harvester/internal/storage/mocks"
 	"github.com/stretchr/testify/assert"
@@ -593,7 +592,7 @@ func TestServer_updatesServer_decrypt(t *testing.T) {
 
 			var body []byte
 			if test.want.code == 200 {
-				body, err = encryptOAEP(sha256.New(), rand.Reader, publicKey.(*rsa.PublicKey), test.body, nil)
+				body, err = crypto.EncryptOAEP(sha256.New(), publicKey.(*rsa.PublicKey), test.body, nil)
 				assert.NoError(t, err)
 			} else {
 				body = test.body
@@ -669,26 +668,4 @@ func generateCert() (string, []byte, error) {
 	file.Write(privateKeyPEM.Bytes())
 
 	return file.Name(), certPEM.Bytes(), nil
-}
-
-func encryptOAEP(hash xhash.Hash, random io.Reader, public *rsa.PublicKey, msg []byte, label []byte) ([]byte, error) {
-	msgLen := len(msg)
-	step := public.Size() - 2*hash.Size() - 2
-	var encryptedBytes []byte
-
-	for start := 0; start < msgLen; start += step {
-		finish := start + step
-		if finish > msgLen {
-			finish = msgLen
-		}
-
-		encryptedBlockBytes, err := rsa.EncryptOAEP(hash, random, public, msg[start:finish], label)
-		if err != nil {
-			return nil, err
-		}
-
-		encryptedBytes = append(encryptedBytes, encryptedBlockBytes...)
-	}
-
-	return encryptedBytes, nil
 }

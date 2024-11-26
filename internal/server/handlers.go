@@ -3,13 +3,11 @@ package server
 import (
 	"bytes"
 	"context"
-	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"hash"
 	"io"
 	"net/http"
 	"os"
@@ -17,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/nbvehbq/go-metrics-harvester/internal/crypto"
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
 	"go.uber.org/zap"
@@ -236,7 +235,7 @@ func (s *Server) updatesHandlerJSON(res http.ResponseWriter, req *http.Request) 
 			return
 		}
 
-		plaintBody, err := decryptOAEP(sha256.New(), nil, privateKey, body, nil)
+		plaintBody, err := crypto.DecryptOAEP(sha256.New(), privateKey, body, nil)
 		if err != nil {
 			JSONError(res, err.Error(), http.StatusBadRequest)
 			return
@@ -298,26 +297,4 @@ func JSONError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(res)
-}
-
-func decryptOAEP(hash hash.Hash, random io.Reader, private *rsa.PrivateKey, msg []byte, label []byte) ([]byte, error) {
-	msgLen := len(msg)
-	step := private.PublicKey.Size()
-	var decryptedBytes []byte
-
-	for start := 0; start < msgLen; start += step {
-		finish := start + step
-		if finish > msgLen {
-			finish = msgLen
-		}
-
-		decryptedBlockBytes, err := rsa.DecryptOAEP(hash, random, private, msg[start:finish], label)
-		if err != nil {
-			return nil, err
-		}
-
-		decryptedBytes = append(decryptedBytes, decryptedBlockBytes...)
-	}
-
-	return decryptedBytes, nil
 }

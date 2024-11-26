@@ -36,6 +36,7 @@ func main() {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	var db server.Repository
 	if cfg.DatabaseDSN == "" {
@@ -78,7 +79,6 @@ func main() {
 	}
 
 	go func() {
-		defer cancel()
 		stop := make(chan os.Signal, 1)
 		signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 

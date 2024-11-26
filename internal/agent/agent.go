@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	crand "crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
@@ -12,8 +11,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	xhash "hash"
-	"io"
 	"math/rand"
 	"net"
 	"net/http"
@@ -21,6 +18,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/nbvehbq/go-metrics-harvester/internal/crypto"
 	"github.com/nbvehbq/go-metrics-harvester/internal/hash"
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
@@ -209,7 +207,7 @@ func (a *Agent) publishMetrics(m *metric.Metrics) error {
 			return errors.Wrap(err, "parse public key")
 		}
 
-		buf, err = encryptOAEP(sha256.New(), crand.Reader, publicKey.(*rsa.PublicKey), buf, nil)
+		buf, err = crypto.EncryptOAEP(sha256.New(), publicKey.(*rsa.PublicKey), buf, nil)
 		if err != nil {
 			return errors.Wrap(err, "encrypt body")
 		}
@@ -290,28 +288,6 @@ func (a *Agent) worker(ctx context.Context, jobs <-chan *metric.Metrics, results
 			return nil
 		}
 	}
-}
-
-func encryptOAEP(hash xhash.Hash, random io.Reader, public *rsa.PublicKey, msg []byte, label []byte) ([]byte, error) {
-	msgLen := len(msg)
-	step := public.Size() - 2*hash.Size() - 2
-	var encryptedBytes []byte
-
-	for start := 0; start < msgLen; start += step {
-		finish := start + step
-		if finish > msgLen {
-			finish = msgLen
-		}
-
-		encryptedBlockBytes, err := rsa.EncryptOAEP(hash, random, public, msg[start:finish], label)
-		if err != nil {
-			return nil, err
-		}
-
-		encryptedBytes = append(encryptedBytes, encryptedBlockBytes...)
-	}
-
-	return encryptedBytes, nil
 }
 
 func realIP() (string, error) {
