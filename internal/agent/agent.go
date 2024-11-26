@@ -15,6 +15,7 @@ import (
 	xhash "hash"
 	"io"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"runtime"
@@ -232,6 +233,12 @@ func (a *Agent) publishMetrics(m *metric.Metrics) error {
 		req.Header.Add("Accept-Encoding", "gzip")
 		req.Header.Add("Content-Encoding", "gzip")
 
+		addr, err := realIP()
+		if err != nil {
+			return errors.Wrap(err, "get ip address")
+		}
+		req.Header.Add("X-Real-IP", addr)
+
 		if a.cfg.Key != "" {
 			sign := hash.Hash([]byte(a.cfg.Key), buf)
 			req.Header.Add(hash.HashHeaderKey, base64.StdEncoding.EncodeToString(sign))
@@ -305,4 +312,42 @@ func encryptOAEP(hash xhash.Hash, random io.Reader, public *rsa.PublicKey, msg [
 	}
 
 	return encryptedBytes, nil
+}
+
+func realIP() (string, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return "", err
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue // interface down
+		}
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue // loopback interface
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			return "", err
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+			ip = ip.To4()
+			if ip == nil {
+				continue // not an ipv4 address
+			}
+			return ip.String(), nil
+		}
+	}
+
+	return "127.0.0.1", nil
 }

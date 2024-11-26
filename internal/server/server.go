@@ -15,6 +15,7 @@ import (
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
 	"github.com/nbvehbq/go-metrics-harvester/internal/middleware"
+	"github.com/nbvehbq/go-metrics-harvester/internal/subnet"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )
@@ -69,10 +70,12 @@ func NewServer(storage Repository, cfg *Config) (*Server, error) {
 		logger.WithLogging,
 	}
 
+	updatesMdw := append(mdw, subnet.WithTructedSubnets(cfg.TrustedSubnet))
+
 	mux.Get(`/`, middleware.Combine(s.listMetricHandler, mdw...))
 	mux.Get(`/ping`, logger.WithLogging(s.pingDBHandler))
 	mux.Post(`/update/`, middleware.Combine(s.updateHandlerJSON, mdw...))
-	mux.Post(`/updates/`, middleware.Combine(s.updatesHandlerJSON, mdw...))
+	mux.Post(`/updates/`, middleware.Combine(s.updatesHandlerJSON, updatesMdw...))
 	mux.Post(`/value/`, middleware.Combine(s.getMetricHandlerJSON, mdw...))
 	mux.Get(`/value/{type}/{name}`, logger.WithLogging(s.getMetricHandler))
 	mux.Post(`/update/{type}/{name}/{value}`, logger.WithLogging(s.updateHandler))
