@@ -30,16 +30,20 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+type HTTPClient interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
 // Agent is a metrics harvester agent
 type Agent struct {
 	cfg       *Config
 	runner    *errgroup.Group
-	client    http.Client
+	client    HTTPClient
 	publicKey []byte
 }
 
 // NewAgent creates a new agent
-func NewAgent(r *errgroup.Group, cfg *Config, client http.Client) (*Agent, error) {
+func NewAgent(r *errgroup.Group, cfg *Config, client HTTPClient) (*Agent, error) {
 	var (
 		buf []byte
 		err error

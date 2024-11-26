@@ -13,6 +13,7 @@ import (
 	"github.com/nbvehbq/go-metrics-harvester/internal/crypto"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
 	"github.com/stretchr/testify/assert"
+	"golang.org/x/sync/errgroup"
 )
 
 func ptr[T any](v T) *T { return &v }
@@ -128,4 +129,37 @@ func decrypt(buf, key []byte) ([]byte, error) {
 	}
 
 	return crypto.DecryptOAEP(sha256.New(), privateKey, buf, nil)
+}
+
+func TestAgent_publishMetrics(t *testing.T) {
+	type fields struct {
+		cfg       *Config
+		runner    *errgroup.Group
+		client    HTTPClient
+		publicKey []byte
+	}
+	type args struct {
+		m *metric.Metrics
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		wantErr bool
+	}{
+		// TODO: Add test cases.
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := &Agent{
+				cfg:       tt.fields.cfg,
+				runner:    tt.fields.runner,
+				client:    tt.fields.client,
+				publicKey: tt.fields.publicKey,
+			}
+			if err := a.publishMetrics(tt.args.m); (err != nil) != tt.wantErr {
+				t.Errorf("Agent.publishMetrics() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
 }
