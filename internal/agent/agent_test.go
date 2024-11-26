@@ -2,14 +2,20 @@ package agent
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
+	"io"
+	"net/http"
 	"testing"
 
+	"github.com/golang/mock/gomock"
+	"github.com/nbvehbq/go-metrics-harvester/internal/agent/mocks"
 	"github.com/nbvehbq/go-metrics-harvester/internal/crypto"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
 	"github.com/stretchr/testify/assert"
@@ -162,4 +168,112 @@ func TestAgent_publishMetrics(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_publishMetrics(t *testing.T) {
+	type want struct {
+		wantError bool
+	}
+	tests := []struct {
+		name string
+		cfg  *Config
+		want want
+	}{
+		{
+			name: "success publish metrics",
+			cfg: &Config{
+				Address:  "localhost:8080",
+				LogLevel: "debug",
+			},
+			want: want{wantError: false},
+		},
+	}
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	m := mocks.NewMockHTTPClient(ctrl)
+
+	// prepare metrics
+	mt := metric.NewMetrics()
+	requestMetrics(mt)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status := http.StatusOK
+
+			if tt.want.wantError {
+				status = http.StatusBadRequest
+			}
+			m.EXPECT().Do(gomock.Any()).Return(&http.Response{
+				Body:       io.NopCloser(bytes.NewBufferString("test")),
+				StatusCode: status,
+			}, nil)
+			a := &Agent{
+				cfg:       tt.cfg,
+				runner:    &errgroup.Group{},
+				client:    m,
+				publicKey: nil,
+			}
+			err := a.publishMetrics(mt)
+			if tt.want.wantError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func Test_publishMetrics_crypt(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	m := mocks.NewMockHTTPClient(ctrl)
+
+	// prepare metrics
+	mt := metric.NewMetrics()
+	requestMetrics(mt)
+
+	cert, key, err := generateCert()
+	assert.NoError(t, err)
+
+	var req *http.Request
+	m.EXPECT().
+		Do(gomock.Any()).
+		DoAndReturn(
+			func(arg *http.Request) (*http.Response, error) {
+				req = arg
+				return &http.Response{
+					Body:       io.NopCloser(bytes.NewBufferString("test")),
+					StatusCode: http.StatusOK,
+				}, nil
+			},
+		)
+
+	a := &Agent{
+		cfg: &Config{
+			Address:  "localhost:8080",
+			LogLevel: "debug",
+			Key:      "testKey",
+		},
+		runner:    &errgroup.Group{},
+		client:    m,
+		publicKey: cert,
+	}
+	err = a.publishMetrics(mt)
+	assert.NoError(t, err)
+
+	// decompress body
+	z, err := gzip.NewReader(req.Body)
+	assert.NoError(t, err)
+	var resB bytes.Buffer
+	_, err = resB.ReadFrom(z)
+	assert.NoError(t, err)
+	body := resB.Bytes()
+
+	// decrypt
+	plain, err := decrypt(body, key)
+	assert.NoError(t, err)
+
+	var list []metric.Metric
+	err = json.Unmarshal(plain, &list)
+	assert.NoError(t, err)
 }
