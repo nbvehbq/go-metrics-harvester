@@ -62,7 +62,7 @@ func (s *Service) Update(ctx context.Context, me []metric.Metric) error {
 		}
 	}
 
-	return nil
+	return s.storage.Update(ctx, me)
 }
 
 func (s *Service) Ping(ctx context.Context) error {

@@ -1,15 +1,10 @@
 package agent
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"crypto/x509"
-	"encoding/json"
 	"encoding/pem"
-	"io"
-	"net/http"
 	"testing"
 
 	"github.com/golang/mock/gomock"
@@ -129,7 +124,7 @@ func Test_publishMetrics(t *testing.T) {
 	}
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	m := mocks.NewMockHTTPClient(ctrl)
+	m := mocks.NewMockPublisher(ctrl)
 
 	// prepare metrics
 	mt := metric.NewMetrics()
@@ -137,22 +132,18 @@ func Test_publishMetrics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			status := http.StatusOK
+			// status := http.StatusOK
 
-			if tt.want.wantError {
-				status = http.StatusBadRequest
-			}
-			m.EXPECT().Do(gomock.Any()).Return(&http.Response{
-				Body:       io.NopCloser(bytes.NewBufferString("test")),
-				StatusCode: status,
-			}, nil)
+			// if tt.want.wantError {
+			// 	status = http.StatusBadRequest
+			// }
+			m.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(nil)
 			a := &Agent{
-				cfg:       tt.cfg,
-				runner:    &errgroup.Group{},
-				client:    m,
-				publicKey: nil,
+				cfg:    tt.cfg,
+				runner: &errgroup.Group{},
+				client: m,
 			}
-			err := a.publishMetrics(mt)
+			err := a.publishMetrics(context.Background(), mt)
 			if tt.want.wantError {
 				assert.Error(t, err)
 			} else {
@@ -160,59 +151,4 @@ func Test_publishMetrics(t *testing.T) {
 			}
 		})
 	}
-}
-
-func Test_publishMetrics_crypt(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	m := mocks.NewMockHTTPClient(ctrl)
-
-	// prepare metrics
-	mt := metric.NewMetrics()
-	requestMetrics(mt)
-
-	cert, key, err := crypto.GenerateCert()
-	assert.NoError(t, err)
-
-	var req *http.Request
-	m.EXPECT().
-		Do(gomock.Any()).
-		DoAndReturn(
-			func(arg *http.Request) (*http.Response, error) {
-				req = arg
-				return &http.Response{
-					Body:       io.NopCloser(bytes.NewBufferString("test")),
-					StatusCode: http.StatusOK,
-				}, nil
-			},
-		)
-
-	a := &Agent{
-		cfg: &Config{
-			Address:  "localhost:8080",
-			LogLevel: "debug",
-			Key:      "testKey",
-		},
-		runner:    &errgroup.Group{},
-		client:    m,
-		publicKey: cert,
-	}
-	err = a.publishMetrics(mt)
-	assert.NoError(t, err)
-
-	// decompress body
-	z, err := gzip.NewReader(req.Body)
-	assert.NoError(t, err)
-	var resB bytes.Buffer
-	_, err = resB.ReadFrom(z)
-	assert.NoError(t, err)
-	body := resB.Bytes()
-
-	// decrypt
-	plain, err := decrypt(body, key)
-	assert.NoError(t, err)
-
-	var list []metric.Metric
-	err = json.Unmarshal(plain, &list)
-	assert.NoError(t, err)
 }

@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/nbvehbq/go-metrics-harvester/internal/agent"
+	"github.com/nbvehbq/go-metrics-harvester/internal/grpclient"
 	"github.com/nbvehbq/go-metrics-harvester/internal/httpclient"
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"golang.org/x/sync/errgroup"
@@ -44,7 +45,22 @@ func main() {
 		cancel()
 	}()
 
-	agent, err := agent.NewAgent(runner, cfg, &httpclient.HTTPClient{})
+	var client agent.Publisher
+	if cfg.Protocol == string(agent.HTTPProtocol) {
+		client, err = httpclient.NewHTTPClient(cfg)
+		if err != nil {
+			log.Fatal(err, "initialize http client")
+		}
+	}
+
+	if cfg.Protocol == string(agent.GRPCProtocol) {
+		client, err = grpclient.NewGRPClient(cfg)
+		if err != nil {
+			log.Fatal(err, "initialize grpc client")
+		}
+	}
+
+	agent, err := agent.NewAgent(runner, cfg, client)
 	if err != nil {
 		log.Fatal(err, "initialize agent")
 	}

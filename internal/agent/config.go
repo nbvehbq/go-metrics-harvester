@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"net/url"
 	"os"
 	"time"
@@ -10,12 +11,20 @@ import (
 	"github.com/caarlos0/env/v11"
 )
 
+type Protocol string
+
 const (
-	defaultAddress        = "http://localhost:8080"
+	HTTPProtocol Protocol = "http"
+	GRPCProtocol Protocol = "grpc"
+)
+
+const (
+	defaultAddress        = "localhost:8080"
 	defaultReportInterval = 10
 	defaultPollInterval   = 2
 	defaultLogLevel       = "info"
 	defaultRateLimit      = 1024
+	defaultProtocol       = HTTPProtocol
 )
 
 // Config is an agent configuration
@@ -28,6 +37,7 @@ type Config struct {
 	RateLimit      int    `env:"RATE_LIMIT"`
 	CryptoKey      string `env:"CRYPTO_KEY"`
 	ConfigFile     string `env:"CONFIG"`
+	Protocol       string `env:"PROTOCOL"`
 }
 
 type CfgFile struct {
@@ -35,6 +45,7 @@ type CfgFile struct {
 	ReportInterval string `json:"report_interval"`
 	PollInterval   string `json:"poll_interval"`
 	CryptoKey      string `json:"crypto_key"`
+	Protocol       string `json:"protocol"`
 }
 
 // NewConfig returns a new config
@@ -53,6 +64,7 @@ func NewConfig() (*Config, error) {
 	flag.IntVar(&cfg.RateLimit, "l", defaultRateLimit, "requests limit default 1024")
 	flag.StringVar(&cfg.CryptoKey, "crypto-key", "", "public key")
 	flag.StringVar(&cfg.ConfigFile, "c", "", "json file holding configuration")
+	flag.StringVar(&cfg.Protocol, "protocol", string(defaultProtocol), "protocol to comunicate with server")
 	flag.Parse()
 
 	if err := env.Parse(cfg); err != nil {
@@ -91,7 +103,11 @@ func NewConfig() (*Config, error) {
 		return nil, err
 	}
 
-	if u.Scheme == "localhost" || u.Scheme == "127.0.0.1" {
+	if cfg.Protocol != string(HTTPProtocol) && cfg.Protocol != string(GRPCProtocol) {
+		return nil, fmt.Errorf("unknown protocol %s", cfg.Protocol)
+	}
+
+	if cfg.Protocol == string(HTTPProtocol) && (u.Scheme == "localhost" || u.Scheme == "127.0.0.1") {
 		cfg.Address = "http://" + cfg.Address
 	}
 

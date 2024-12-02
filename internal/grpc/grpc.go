@@ -18,6 +18,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+	_ "google.golang.org/grpc/encoding/gzip"
 )
 
 type Grpc struct {

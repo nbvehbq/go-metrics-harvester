@@ -4,25 +4,15 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"crypto/rsa"
-	"crypto/sha256"
-	"crypto/x509"
-	"encoding/base64"
-	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"math/rand"
 	"net"
 	"net/http"
-	"os"
 	"runtime"
 	"time"
 
-	"github.com/nbvehbq/go-metrics-harvester/internal/crypto"
-	"github.com/nbvehbq/go-metrics-harvester/internal/hash"
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
-	"github.com/nbvehbq/go-metrics-harvester/pkg/retry"
 	"github.com/pkg/errors"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/mem"
@@ -34,28 +24,21 @@ type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
+type Publisher interface {
+	Publish(ctx context.Context, m []metric.Metric) error
+}
+
 // Agent is a metrics harvester agent
 type Agent struct {
-	cfg       *Config
-	runner    *errgroup.Group
-	client    HTTPClient
-	publicKey []byte
+	cfg    *Config
+	runner *errgroup.Group
+	client Publisher
+	// publicKey []byte
 }
 
 // NewAgent creates a new agent
-func NewAgent(r *errgroup.Group, cfg *Config, client HTTPClient) (*Agent, error) {
-	var (
-		buf []byte
-		err error
-	)
-	if cfg.CryptoKey != "" {
-		buf, err = os.ReadFile(cfg.CryptoKey)
-		if err != nil {
-			return nil, errors.Wrap(err, "open public key filename")
-		}
-	}
-
-	return &Agent{runner: r, cfg: cfg, client: client, publicKey: buf}, nil
+func NewAgent(r *errgroup.Group, cfg *Config, client Publisher) (*Agent, error) {
+	return &Agent{runner: r, cfg: cfg, client: client}, nil
 }
 
 // Run runs the agent
@@ -187,7 +170,7 @@ func requestMemoryMetrics(ctx context.Context, m *metric.Metrics) error {
 	return nil
 }
 
-func (a *Agent) publishMetrics(m *metric.Metrics) error {
+func (a *Agent) publishMetrics(ctx context.Context, m *metric.Metrics) error {
 	m.Mu.RLock()
 	defer func() {
 		m.Mu.RUnlock()
@@ -199,62 +182,7 @@ func (a *Agent) publishMetrics(m *metric.Metrics) error {
 		list = append(list, v)
 	}
 
-	buf, err := json.Marshal(list)
-	if err != nil {
-		return errors.Wrap(err, "marshal")
-	}
-
-	if a.publicKey != nil {
-		publicKeyBlock, _ := pem.Decode(a.publicKey)
-		publicKey, err := x509.ParsePKIXPublicKey(publicKeyBlock.Bytes)
-		if err != nil {
-			return errors.Wrap(err, "parse public key")
-		}
-
-		buf, err = crypto.EncryptOAEP(sha256.New(), publicKey.(*rsa.PublicKey), buf, nil)
-		if err != nil {
-			return errors.Wrap(err, "encrypt body")
-		}
-	}
-
-	buf, err = compress(buf)
-	if err != nil {
-		return errors.Wrap(err, "compress")
-	}
-
-	err = retry.Do(func() (err error) {
-		req, err := http.NewRequest(
-			"POST",
-			fmt.Sprintf("%s/updates/", a.cfg.Address),
-			bytes.NewReader(buf))
-		if err != nil {
-			return errors.Wrap(err, "new request")
-		}
-
-		req.Header.Add("Content-Type", "application/json")
-		req.Header.Add("Accept-Encoding", "gzip")
-		req.Header.Add("Content-Encoding", "gzip")
-
-		addr, err := realIP()
-		if err != nil {
-			return errors.Wrap(err, "get ip address")
-		}
-		req.Header.Add("X-Real-IP", addr)
-
-		if a.cfg.Key != "" {
-			sign := hash.Hash([]byte(a.cfg.Key), buf)
-			req.Header.Add(hash.HashHeaderKey, base64.StdEncoding.EncodeToString(sign))
-		}
-
-		res, err := a.client.Do(req)
-		if err != nil {
-			return errors.Wrap(err, "send request")
-		}
-		defer res.Body.Close()
-
-		return
-	})
-
+	err := a.client.Publish(ctx, list)
 	if err != nil {
 		return errors.Wrap(err, "client post")
 	}
@@ -288,7 +216,7 @@ func (a *Agent) worker(ctx context.Context, jobs <-chan *metric.Metrics, results
 			if !ok {
 				return nil
 			}
-			results <- a.publishMetrics(job)
+			results <- a.publishMetrics(ctx, job)
 			return nil
 		}
 	}
