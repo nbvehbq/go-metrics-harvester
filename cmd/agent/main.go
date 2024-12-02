@@ -36,17 +36,21 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	runner, ctx := errgroup.WithContext(ctx)
 
+	go func() {
+		stop := make(chan os.Signal, 1)
+		signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+
+		<-stop
+		cancel()
+	}()
+
 	agent, err := agent.NewAgent(runner, cfg, &httpclient.HTTPClient{})
 	if err != nil {
 		log.Fatal(err, "initialize agent")
 	}
 	agent.Run(ctx)
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
-
-	<-stop
-	cancel()
-
-	runner.Wait()
+	if err := runner.Wait(); err != nil {
+		log.Printf("exit reason: %s \n", err)
+	}
 }

@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"crypto/rand"
-	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/json"
@@ -101,32 +99,6 @@ func Test_commpress(t *testing.T) {
 	assert.NotEqual(t, payload, b)
 }
 
-func generateCert() ([]byte, []byte, error) {
-	privateKey, err := rsa.GenerateKey(rand.Reader, 4096)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	certBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	var certPEM bytes.Buffer
-	pem.Encode(&certPEM, &pem.Block{
-		Type:  "CERTIFICATE",
-		Bytes: certBytes,
-	})
-
-	var privateKeyPEM bytes.Buffer
-	pem.Encode(&privateKeyPEM, &pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
-	})
-
-	return certPEM.Bytes(), privateKeyPEM.Bytes(), nil
-}
-
 func decrypt(buf, key []byte) ([]byte, error) {
 	privateKeyBlock, _ := pem.Decode(key)
 	privateKey, err := x509.ParsePKCS1PrivateKey(privateKeyBlock.Bytes)
@@ -135,39 +107,6 @@ func decrypt(buf, key []byte) ([]byte, error) {
 	}
 
 	return crypto.DecryptOAEP(sha256.New(), privateKey, buf, nil)
-}
-
-func TestAgent_publishMetrics(t *testing.T) {
-	type fields struct {
-		cfg       *Config
-		runner    *errgroup.Group
-		client    HTTPClient
-		publicKey []byte
-	}
-	type args struct {
-		m *metric.Metrics
-	}
-	tests := []struct {
-		name    string
-		fields  fields
-		args    args
-		wantErr bool
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			a := &Agent{
-				cfg:       tt.fields.cfg,
-				runner:    tt.fields.runner,
-				client:    tt.fields.client,
-				publicKey: tt.fields.publicKey,
-			}
-			if err := a.publishMetrics(tt.args.m); (err != nil) != tt.wantErr {
-				t.Errorf("Agent.publishMetrics() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
 }
 
 func Test_publishMetrics(t *testing.T) {
@@ -232,7 +171,7 @@ func Test_publishMetrics_crypt(t *testing.T) {
 	mt := metric.NewMetrics()
 	requestMetrics(mt)
 
-	cert, key, err := generateCert()
+	cert, key, err := crypto.GenerateCert()
 	assert.NoError(t, err)
 
 	var req *http.Request

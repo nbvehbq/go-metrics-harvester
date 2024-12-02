@@ -2,12 +2,19 @@ package hash
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
 	"hash"
 	"io"
 	"net/http"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -83,5 +90,28 @@ func WithHash(key string) func(http.HandlerFunc) http.HandlerFunc {
 
 			h.ServeHTTP(originalWriter, r)
 		}
+	}
+}
+
+func UnaryServerInterceptor(key string) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (_ any, err error) {
+		if key != "" {
+			var sign string
+			if md, ok := metadata.FromIncomingContext(ctx); ok {
+				values := md.Get(HashHeaderKey)
+				if len(values) > 0 {
+					sign = values[0]
+					body, err := proto.Marshal(req.(proto.Message))
+					if err != nil {
+						return nil, status.Errorf(codes.InvalidArgument, "unsupported message type: %T", body)
+					}
+					bodySign := base64.StdEncoding.EncodeToString(Hash([]byte(key), body))
+					if sign != bodySign {
+						return nil, status.Errorf(codes.InvalidArgument, "wrong signature")
+					}
+				}
+			}
+		}
+		return handler(ctx, req)
 	}
 }

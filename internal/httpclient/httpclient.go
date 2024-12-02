@@ -3,7 +3,7 @@ package httpclient
 import "net/http"
 
 type HTTPClient struct {
-	*http.Client
+	http.Client
 }
 
 func (h *HTTPClient) Do(req *http.Request) (*http.Response, error) {

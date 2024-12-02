@@ -42,3 +42,15 @@ tasks:
   lint:
     cmds:
       - go run ./cmd/staticlint/main.go ./...
+
+  generate:
+    aliases:
+      - gen
+    desc: "Generate code from proto files"
+    cmds:
+      - protoc -I pkg/contract/proto
+        pkg/contract/proto/metrics/*.proto
+        --go_out=./pkg/contract/gen/ 
+        --go_opt=paths=source_relative 
+        --go-grpc_out=./pkg/contract/gen/ 
+        --go-grpc_opt=paths=source_relative

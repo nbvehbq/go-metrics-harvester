@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
@@ -18,10 +17,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/golang/mock/gomock"
-	"github.com/nbvehbq/go-metrics-harvester/internal/crypto"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
-	"github.com/nbvehbq/go-metrics-harvester/internal/storage/mocks"
+	"github.com/nbvehbq/go-metrics-harvester/internal/metric/mocks"
 	"github.com/stretchr/testify/assert"
+	"golang.org/x/sync/errgroup"
 )
 
 func intPtr(v int64) *int64 {
@@ -31,14 +30,16 @@ func intPtr(v int64) *int64 {
 func TestServer_PingHandler(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	m := mocks.NewMockRepository(ctrl)
+	m := mocks.NewMockMetricService(ctrl)
 
 	w := httptest.NewRecorder()
 
 	m.EXPECT().Ping(gomock.Any()).Return(nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
-	srv, err := NewServer(m, &Config{})
+	runner, _ := errgroup.WithContext(req.Context())
+
+	srv, err := NewServer(runner, m, &Config{})
 	assert.NoError(t, err)
 	srv.pingDBHandler(w, req)
 
@@ -93,7 +94,7 @@ func TestServer_updatesServerJSON(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	m := mocks.NewMockRepository(ctrl)
+	m := mocks.NewMockMetricService(ctrl)
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -105,7 +106,8 @@ func TestServer_updatesServerJSON(t *testing.T) {
 				AnyTimes()
 
 			req := httptest.NewRequest(http.MethodPost, "/updates", bytes.NewBuffer(test.body))
-			srv, err := NewServer(m, &Config{})
+			runner, _ := errgroup.WithContext(req.Context())
+			srv, err := NewServer(runner, m, &Config{})
 			assert.NoError(t, err)
 			srv.updatesHandlerJSON(w, req)
 
@@ -122,7 +124,6 @@ func TestServer_updateHandlerJSON(t *testing.T) {
 		code        int
 		response    string
 		contentType string
-		callStorage bool
 	}
 	tests := []struct {
 		name string
@@ -135,7 +136,6 @@ func TestServer_updateHandlerJSON(t *testing.T) {
 				code:        200,
 				response:    `{"status":"ok"}`,
 				contentType: "application/json",
-				callStorage: true,
 			},
 			body: []byte(`{"type":"counter","id":"test","delta":1}`),
 		},
@@ -145,7 +145,6 @@ func TestServer_updateHandlerJSON(t *testing.T) {
 				code:        200,
 				response:    `{"status":"ok"}`,
 				contentType: "application/json",
-				callStorage: true,
 			},
 			body: []byte(`{
 				"type":  "gauge",
@@ -159,7 +158,6 @@ func TestServer_updateHandlerJSON(t *testing.T) {
 				code:        400,
 				response:    `{"status":"ok"}`,
 				contentType: "application/json",
-				callStorage: false,
 			},
 			body: []byte(`{
 				"type":  "",
@@ -173,7 +171,6 @@ func TestServer_updateHandlerJSON(t *testing.T) {
 				code:        404,
 				response:    `{"status":"ok"}`,
 				contentType: "application/json",
-				callStorage: false,
 			},
 			body: []byte(`{
 				"type":  "gauge",
@@ -182,50 +179,63 @@ func TestServer_updateHandlerJSON(t *testing.T) {
 			}`),
 		},
 		{
-			name: "unvalid counter",
+			name: "invalid counter",
 			want: want{
 				code:        400,
 				response:    `{"status":"ok"}`,
 				contentType: "application/json",
-				callStorage: false,
 			},
-			body: []byte(`{
-				"type":  "counter",
-				"id":  "test",
-				"delta": 3.14
-			}`),
+			body: []byte(`{"type": "counter", "id": "test", "delta": 3}`),
 		},
 		{
-			name: "unvalid gauge",
+			name: "invalid gauge",
 			want: want{
 				code:        400,
 				response:    `{"status":"ok"}`,
 				contentType: "application/json",
-				callStorage: false,
 			},
 			body: []byte(`{
 				"type":  "gauge",
-				"name":  "test",
-				"value": "fail"
+				"id":  "test",
+				"value": 10
 			}`),
 		},
 	}
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	m := mocks.NewMockRepository(ctrl)
+	m := mocks.NewMockMetricService(ctrl)
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 
-			if test.want.callStorage {
-				m.EXPECT().Set(gomock.Any(), gomock.Any()).Return(nil)
-				m.EXPECT().Get(gomock.Any(), gomock.Any()).Return(metric.Metric{}, true)
+			switch test.want.code {
+			case 200:
+				m.EXPECT().
+					Set(gomock.Any(), gomock.Any()).
+					Return(nil)
+			case 404:
+				m.EXPECT().
+					Set(gomock.Any(), gomock.Any()).
+					Return(metric.ErrMetricNotFound)
+			case 400:
+				m.EXPECT().
+					Set(gomock.Any(), gomock.Any()).
+					Return(metric.ErrMetricBadType)
+			default:
+				m.EXPECT().
+					Set(gomock.Any(), gomock.Any()).
+					Return(errors.New("new error"))
 			}
 
+			m.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).
+				Return(&metric.Metric{}, nil).AnyTimes()
+			m.EXPECT().SaveToFile(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
 			req := httptest.NewRequest(http.MethodPost, "/value", bytes.NewBuffer(test.body))
-			srv, err := NewServer(m, &Config{})
+			runner, _ := errgroup.WithContext(req.Context())
+			srv, err := NewServer(runner, m, &Config{})
 			assert.NoError(t, err)
 			srv.updateHandlerJSON(w, req)
 
@@ -243,7 +253,7 @@ func TestServer_getMetricHandlerJSON(t *testing.T) {
 		response    string
 		contentType string
 		metric      metric.Metric
-		res         bool
+		res         error
 	}
 	tests := []struct {
 		name string
@@ -256,7 +266,7 @@ func TestServer_getMetricHandlerJSON(t *testing.T) {
 				response:    `{"status":"ok"}`,
 				contentType: "application/json",
 				metric:      metric.Metric{ID: "test", MType: metric.Gauge, Delta: intPtr(42)},
-				res:         false,
+				res:         errors.New("not found"),
 			},
 		},
 		{
@@ -266,7 +276,7 @@ func TestServer_getMetricHandlerJSON(t *testing.T) {
 				response:    `{"status":"ok"}`,
 				contentType: "application/json",
 				metric:      metric.Metric{ID: "test", MType: metric.Counter, Delta: intPtr(42)},
-				res:         false,
+				res:         errors.New("not found"),
 			},
 		},
 		{
@@ -276,13 +286,13 @@ func TestServer_getMetricHandlerJSON(t *testing.T) {
 				response:    `{"status":"ok"}`,
 				contentType: "application/json",
 				metric:      metric.Metric{ID: "test3", MType: metric.Counter, Delta: intPtr(42)},
-				res:         true,
+				res:         nil,
 			},
 		},
 	}
 
 	ctrl := gomock.NewController(t)
-	m := mocks.NewMockRepository(ctrl)
+	m := mocks.NewMockMetricService(ctrl)
 	defer ctrl.Finish()
 
 	for _, test := range tests {
@@ -295,9 +305,12 @@ func TestServer_getMetricHandlerJSON(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/value", &body)
 			w := httptest.NewRecorder()
 
-			m.EXPECT().Get(gomock.Any(), test.want.metric.ID).Return(test.want.metric, test.want.res)
+			m.EXPECT().
+				Get(gomock.Any(), test.want.metric.ID, test.want.metric.MType).
+				Return(&test.want.metric, test.want.res)
 
-			srv, err := NewServer(m, &Config{})
+			runner, _ := errgroup.WithContext(req.Context())
+			srv, err := NewServer(runner, m, &Config{})
 			assert.NoError(t, err)
 			srv.getMetricHandlerJSON(w, req)
 
@@ -341,7 +354,7 @@ func TestServer_listMetricHandler(t *testing.T) {
 	}
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-	m := mocks.NewMockRepository(ctrl)
+	m := mocks.NewMockMetricService(ctrl)
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -353,7 +366,8 @@ func TestServer_listMetricHandler(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			w := httptest.NewRecorder()
 
-			srv, err := NewServer(m, &Config{})
+			runner, _ := errgroup.WithContext(req.Context())
+			srv, err := NewServer(runner, m, &Config{})
 			assert.NoError(t, err)
 
 			srv.listMetricHandler(w, req)
@@ -372,7 +386,7 @@ func TestServer_getMetricHandler(t *testing.T) {
 		response    string
 		contentType string
 		metric      metric.Metric
-		res         bool
+		res         error
 	}
 	tests := []struct {
 		name string
@@ -385,7 +399,7 @@ func TestServer_getMetricHandler(t *testing.T) {
 				response:    `{"status":"ok"}`,
 				contentType: "text/plain; charset=utf-8",
 				metric:      metric.Metric{ID: "test", MType: metric.Gauge, Delta: intPtr(42)},
-				res:         false,
+				res:         errors.New("not found"),
 			},
 		},
 		{
@@ -395,7 +409,7 @@ func TestServer_getMetricHandler(t *testing.T) {
 				response:    `{"status":"ok"}`,
 				contentType: "text/plain; charset=utf-8",
 				metric:      metric.Metric{ID: "test", MType: metric.Counter, Delta: intPtr(42)},
-				res:         false,
+				res:         errors.New("not found"),
 			},
 		},
 		{
@@ -405,13 +419,13 @@ func TestServer_getMetricHandler(t *testing.T) {
 				response:    `{"status":"ok"}`,
 				contentType: "text/plain; charset=utf-8",
 				metric:      metric.Metric{ID: "test3", MType: metric.Counter, Delta: intPtr(42)},
-				res:         true,
+				res:         nil,
 			},
 		},
 	}
 
 	ctrl := gomock.NewController(t)
-	m := mocks.NewMockRepository(ctrl)
+	m := mocks.NewMockMetricService(ctrl)
 	defer ctrl.Finish()
 
 	for _, test := range tests {
@@ -428,10 +442,11 @@ func TestServer_getMetricHandler(t *testing.T) {
 			w := httptest.NewRecorder()
 
 			m.EXPECT().
-				Get(gomock.Any(), test.want.metric.ID).
-				Return(test.want.metric, test.want.res)
+				Get(gomock.Any(), test.want.metric.ID, test.want.metric.MType).
+				Return(&test.want.metric, test.want.res)
 
-			srv, err := NewServer(m, &Config{})
+			runner, _ := errgroup.WithContext(req.Context())
+			srv, err := NewServer(runner, m, &Config{})
 			assert.NoError(t, err)
 			srv.getMetricHandler(w, req)
 
@@ -507,7 +522,7 @@ func TestServer_updateHandler(t *testing.T) {
 	}
 
 	ctrl := gomock.NewController(t)
-	m := mocks.NewMockRepository(ctrl)
+	m := mocks.NewMockMetricService(ctrl)
 	defer ctrl.Finish()
 
 	for _, test := range tests {
@@ -530,7 +545,8 @@ func TestServer_updateHandler(t *testing.T) {
 				Return(nil).
 				AnyTimes()
 
-			srv, err := NewServer(m, &Config{})
+			runner, _ := errgroup.WithContext(req.Context())
+			srv, err := NewServer(runner, m, &Config{})
 			assert.NoError(t, err)
 			srv.updateHandler(w, req)
 
@@ -540,100 +556,6 @@ func TestServer_updateHandler(t *testing.T) {
 			assert.Equal(t, test.want.contentType, res.Header.Get("Content-Type"))
 		})
 	}
-}
-
-func TestServer_updatesServer_decrypt(t *testing.T) {
-	type want struct {
-		code        int
-		contentType string
-	}
-	tests := []struct {
-		name string
-		body []byte
-		want want
-	}{
-		{
-			name: "success decrypt body",
-			body: []byte(`[{"id":"test","type":"gauge","delta":42}]`),
-			want: want{
-				code:        200,
-				contentType: "application/json",
-			},
-		},
-		{
-			name: "wrong flat body",
-			body: []byte(`[{"id":"test","type":"counter","value":42}]`),
-			want: want{
-				code:        400,
-				contentType: "application/json",
-			},
-		},
-	}
-
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	m := mocks.NewMockRepository(ctrl)
-
-	keyFile, cert, err := generateCert()
-	assert.NoError(t, err)
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			w := httptest.NewRecorder()
-
-			m.EXPECT().
-				Update(gomock.Any(), gomock.Any()).
-				Return(nil).
-				AnyTimes()
-
-			publicKeyBlock, _ := pem.Decode(cert)
-			publicKey, err := x509.ParsePKIXPublicKey(publicKeyBlock.Bytes)
-			assert.NoError(t, err)
-
-			var body []byte
-			if test.want.code == 200 {
-				body, err = crypto.EncryptOAEP(sha256.New(), publicKey.(*rsa.PublicKey), test.body, nil)
-				assert.NoError(t, err)
-			} else {
-				body = test.body
-			}
-			req := httptest.NewRequest(http.MethodPost, "/updates", bytes.NewBuffer(body))
-			srv, err := NewServer(m, &Config{
-				CryptoKey: keyFile,
-			})
-			assert.NoError(t, err)
-			srv.updatesHandlerJSON(w, req)
-
-			res := w.Result()
-			res.Body.Close()
-			assert.Equal(t, test.want.code, res.StatusCode)
-			assert.Equal(t, test.want.contentType, res.Header.Get("Content-Type"))
-		})
-	}
-}
-
-func TestServer_saveToFile(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-	m := mocks.NewMockRepository(ctrl)
-
-	path, err := os.CreateTemp("", "test")
-	assert.NoError(t, err)
-
-	m.EXPECT().
-		Persist(gomock.Any(), gomock.Any()).
-		Return(nil).AnyTimes()
-
-	err = path.Close()
-	assert.NoError(t, err)
-
-	srv, err := NewServer(m, &Config{
-		FileStoragePath: path.Name(),
-	})
-	assert.NoError(t, err)
-
-	err = srv.saveToFile(context.Background())
-	assert.NoError(t, err)
 }
 
 func generateCert() (string, []byte, error) {
