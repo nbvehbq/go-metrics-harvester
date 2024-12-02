@@ -9,10 +9,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nbvehbq/go-metrics-harvester/internal/grpc"
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
+	"github.com/nbvehbq/go-metrics-harvester/internal/metric/service"
 	"github.com/nbvehbq/go-metrics-harvester/internal/server"
 	"github.com/nbvehbq/go-metrics-harvester/internal/storage/memory"
 	"github.com/nbvehbq/go-metrics-harvester/internal/storage/postgres"
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -35,9 +38,10 @@ func main() {
 		log.Fatal(errInit, "initialize logger")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, done := context.WithCancel(context.Background())
+	runner, ctx := errgroup.WithContext(ctx)
 
-	var db server.Repository
+	var db service.Repository
 	if cfg.DatabaseDSN == "" {
 		db = memory.NewMemStorage()
 	} else {
@@ -72,27 +76,39 @@ func main() {
 		}
 	}
 
-	server, err := server.NewServer(db, cfg)
+	service := service.NewService(db)
+	grpcServer, err := grpc.NewGrpc(ctx, runner, service, cfg)
 	if err != nil {
-		log.Fatal(err, "create server")
+		log.Fatal(err, "create grpc server")
+	}
+	if err := grpcServer.Run(ctx); err != nil {
+		log.Fatal(err, "run grpc server")
 	}
 
+	httpServer, err := server.NewServer(runner, service, cfg)
+	if err != nil {
+		log.Fatal(err, "create http server")
+	}
+	httpServer.Run(ctx)
+
 	go func() {
-		defer cancel()
 		stop := make(chan os.Signal, 1)
 		signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 
 		<-stop
+		done()
 
 		nctx, cancel := context.WithTimeout(ctx, time.Second*10)
 		defer cancel()
 
-		if err := server.Shutdown(nctx); err != nil {
+		grpcServer.Shutdown(nctx)
+
+		if err := httpServer.Shutdown(nctx); err != nil {
 			log.Fatal(err)
 		}
 	}()
 
-	if err := server.Run(ctx); err != nil {
-		panic(err)
+	if err := runner.Wait(); err != nil {
+		log.Printf("exit reason: %s \n", err)
 	}
 }

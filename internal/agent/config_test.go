@@ -26,6 +26,7 @@ func TestNewConfig(t *testing.T) {
 				LogLevel:       "info",
 				Key:            "",
 				RateLimit:      1024,
+				Protocol:       "http",
 			},
 		},
 	}

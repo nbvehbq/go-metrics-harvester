@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package metrics;
+
+option go_package = "metrics.v1;metricsv1";
+
+message Metric {
+  string id = 1;
+  string mType = 2;
+  optional int64 delta = 3;
+  optional double value = 4;
+}
+
+message ListRequest {}
+
+message ListResponse {
+  repeated Metric metric = 1;
+}
+
+message UpdateRequest {
+  repeated Metric metric = 1;
+}
+
+message UpdateResponse {
+}
+
+message ValueRequest {
+  string id = 1;
+  string type = 2;
+}
+
+message ValueResponse {
+  Metric metric = 1;
+}
+
+service MetricService {
+  rpc List(ListRequest) returns (ListResponse);
+  rpc Update(UpdateRequest) returns (UpdateResponse);
+  rpc Value(ValueRequest) returns (ValueResponse);
+}

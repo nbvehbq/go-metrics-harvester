@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"flag"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -31,6 +32,7 @@ type CfgFile struct {
 	StoreFile     string `json:"store_file"`
 	DatabaseDSN   string `json:"database_dsn"`
 	CryptoKey     string `json:"crypto_key"`
+	TrustedSubnet string `json:"trusted_subnet"`
 }
 
 // Config is a server configuration
@@ -44,6 +46,7 @@ type Config struct {
 	Key             string `env:"KEY"`
 	CryptoKey       string `env:"CRYPTO_KEY"`
 	ConfigFile      string `env:"CONFIG"`
+	TrustedSubnet   string `env:"TRUSTED_SUBNET"`
 }
 
 func NewConfig() (*Config, error) {
@@ -61,10 +64,18 @@ func NewConfig() (*Config, error) {
 	flag.StringVar(&cfg.Key, "k", "", "secret key")
 	flag.StringVar(&cfg.CryptoKey, "crypto-key", "", "secret assymetric key")
 	flag.StringVar(&cfg.ConfigFile, "c", "", "json file holding configuration")
+	flag.StringVar(&cfg.TrustedSubnet, "t", "", "trust subnet CIDR notation")
 	flag.Parse()
 
 	if err := env.Parse(cfg); err != nil {
 		return nil, err
+	}
+
+	if cfg.TrustedSubnet != "" {
+		_, _, err := net.ParseCIDR(cfg.TrustedSubnet)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if cfg.ConfigFile != "" {

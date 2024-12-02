@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"io"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -11,36 +10,28 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddle "github.com/go-chi/chi/v5/middleware"
 	"github.com/nbvehbq/go-metrics-harvester/internal/compress"
+	"github.com/nbvehbq/go-metrics-harvester/internal/crypto"
 	"github.com/nbvehbq/go-metrics-harvester/internal/hash"
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
 	"github.com/nbvehbq/go-metrics-harvester/internal/middleware"
+	"github.com/nbvehbq/go-metrics-harvester/internal/subnet"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 )
-
-// Repository is a metrics repository interface
-type Repository interface {
-	Set(context.Context, metric.Metric) error
-	Get(context.Context, string) (metric.Metric, bool)
-	List(context.Context) ([]metric.Metric, error)
-	Persist(context.Context, io.Writer) error
-	Ping(context.Context) error
-	Update(context.Context, []metric.Metric) error
-}
 
 // Server is a metrics server
 type Server struct {
 	srv             *http.Server
-	storage         Repository
+	runner          *errgroup.Group
+	service         metric.MetricService
 	storeInterval   int64
 	fileStoragePath string
-	databaseDSN     string
-	secretKey       []byte
 }
 
 // NewServer creates a new server
-func NewServer(storage Repository, cfg *Config) (*Server, error) {
+func NewServer(runner *errgroup.Group, service metric.MetricService, cfg *Config) (*Server, error) {
 	var (
 		buf []byte
 		err error
@@ -56,11 +47,10 @@ func NewServer(storage Repository, cfg *Config) (*Server, error) {
 
 	s := &Server{
 		srv:             &http.Server{Addr: cfg.Address, Handler: mux},
-		storage:         storage,
+		runner:          runner,
+		service:         service,
 		storeInterval:   cfg.StoreInterval,
 		fileStoragePath: cfg.FileStoragePath,
-		databaseDSN:     cfg.DatabaseDSN,
-		secretKey:       buf,
 	}
 
 	mdw := []middleware.Middleware{
@@ -69,10 +59,16 @@ func NewServer(storage Repository, cfg *Config) (*Server, error) {
 		logger.WithLogging,
 	}
 
+	updatesMdw := append(
+		mdw,
+		subnet.WithTructedSubnets(cfg.TrustedSubnet),
+		crypto.WithDecrypt(buf),
+	)
+
 	mux.Get(`/`, middleware.Combine(s.listMetricHandler, mdw...))
 	mux.Get(`/ping`, logger.WithLogging(s.pingDBHandler))
 	mux.Post(`/update/`, middleware.Combine(s.updateHandlerJSON, mdw...))
-	mux.Post(`/updates/`, middleware.Combine(s.updatesHandlerJSON, mdw...))
+	mux.Post(`/updates/`, middleware.Combine(s.updatesHandlerJSON, updatesMdw...))
 	mux.Post(`/value/`, middleware.Combine(s.getMetricHandlerJSON, mdw...))
 	mux.Get(`/value/{type}/{name}`, logger.WithLogging(s.getMetricHandler))
 	mux.Post(`/update/{type}/{name}/{value}`, logger.WithLogging(s.updateHandler))
@@ -83,31 +79,32 @@ func NewServer(storage Repository, cfg *Config) (*Server, error) {
 }
 
 // Run runs the server
-func (s *Server) Run(ctx context.Context) error {
+func (s *Server) Run(ctx context.Context) {
 	logger.Log.Info("Server started.")
 
 	storeInterval := time.Second * time.Duration(s.storeInterval)
 
 	if s.storeInterval > 0 {
-		go func() {
+		s.runner.Go(func() error {
 			for {
 				select {
 				case <-ctx.Done():
-					return
+					return ctx.Err()
 				case <-time.After(storeInterval):
-					if err := s.saveToFile(ctx); err != nil {
+					if err := s.service.SaveToFile(ctx, s.fileStoragePath); err != nil {
 						logger.Log.Error("save error", zap.Error(err))
 					}
 				}
 			}
-		}()
+		})
 	}
 
-	if err := s.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		return err
-	}
-
-	return nil
+	s.runner.Go(func() error {
+		if err := s.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			return err
+		}
+		return nil
+	})
 }
 
 // Shutdown gracefully stops the server

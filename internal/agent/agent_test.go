@@ -1,19 +1,18 @@
 package agent
 
 import (
-	"bytes"
 	"context"
-	"crypto/rand"
-	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/pem"
-	xhash "hash"
-	"io"
 	"testing"
 
+	"github.com/golang/mock/gomock"
+	"github.com/nbvehbq/go-metrics-harvester/internal/agent/mocks"
+	"github.com/nbvehbq/go-metrics-harvester/internal/crypto"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
 	"github.com/stretchr/testify/assert"
+	"golang.org/x/sync/errgroup"
 )
 
 func ptr[T any](v T) *T { return &v }
@@ -95,32 +94,6 @@ func Test_commpress(t *testing.T) {
 	assert.NotEqual(t, payload, b)
 }
 
-func generateCert() ([]byte, []byte, error) {
-	privateKey, err := rsa.GenerateKey(rand.Reader, 4096)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	certBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	var certPEM bytes.Buffer
-	pem.Encode(&certPEM, &pem.Block{
-		Type:  "CERTIFICATE",
-		Bytes: certBytes,
-	})
-
-	var privateKeyPEM bytes.Buffer
-	pem.Encode(&privateKeyPEM, &pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
-	})
-
-	return certPEM.Bytes(), privateKeyPEM.Bytes(), nil
-}
-
 func decrypt(buf, key []byte) ([]byte, error) {
 	privateKeyBlock, _ := pem.Decode(key)
 	privateKey, err := x509.ParsePKCS1PrivateKey(privateKeyBlock.Bytes)
@@ -128,27 +101,54 @@ func decrypt(buf, key []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return decryptOAEP(sha256.New(), nil, privateKey, buf, nil)
+	return crypto.DecryptOAEP(sha256.New(), privateKey, buf, nil)
 }
 
-func decryptOAEP(hash xhash.Hash, random io.Reader, private *rsa.PrivateKey, msg []byte, label []byte) ([]byte, error) {
-	msgLen := len(msg)
-	step := private.PublicKey.Size()
-	var decryptedBytes []byte
-
-	for start := 0; start < msgLen; start += step {
-		finish := start + step
-		if finish > msgLen {
-			finish = msgLen
-		}
-
-		decryptedBlockBytes, err := rsa.DecryptOAEP(hash, random, private, msg[start:finish], label)
-		if err != nil {
-			return nil, err
-		}
-
-		decryptedBytes = append(decryptedBytes, decryptedBlockBytes...)
+func Test_publishMetrics(t *testing.T) {
+	type want struct {
+		wantError bool
 	}
+	tests := []struct {
+		name string
+		cfg  *Config
+		want want
+	}{
+		{
+			name: "success publish metrics",
+			cfg: &Config{
+				Address:  "localhost:8080",
+				LogLevel: "debug",
+			},
+			want: want{wantError: false},
+		},
+	}
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	m := mocks.NewMockPublisher(ctrl)
 
-	return decryptedBytes, nil
+	// prepare metrics
+	mt := metric.NewMetrics()
+	requestMetrics(mt)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// status := http.StatusOK
+
+			// if tt.want.wantError {
+			// 	status = http.StatusBadRequest
+			// }
+			m.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(nil)
+			a := &Agent{
+				cfg:    tt.cfg,
+				runner: &errgroup.Group{},
+				client: m,
+			}
+			err := a.publishMetrics(context.Background(), mt)
+			if tt.want.wantError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }

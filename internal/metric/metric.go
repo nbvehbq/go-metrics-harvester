@@ -1,6 +1,8 @@
 package metric
 
 import (
+	"context"
+	"errors"
 	"strconv"
 	"sync"
 )
@@ -9,6 +11,21 @@ const (
 	Gauge   = "gauge"
 	Counter = "counter"
 )
+
+var (
+	ErrMetricNotFound = errors.New("not found")
+	ErrMetricBadType  = errors.New("bad metric type")
+)
+
+type MetricService interface {
+	List(ctx context.Context) ([]Metric, error)
+	Get(ctx context.Context, ID, MType string) (*Metric, error)
+	Update(ctx context.Context, m []Metric) error
+	Set(ctx context.Context, m Metric) error
+
+	SaveToFile(ctx context.Context, path string) error
+	Ping(context.Context) error
+}
 
 type Validator func(value string) bool
 
