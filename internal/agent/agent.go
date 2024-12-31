@@ -4,26 +4,15 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	crand "crypto/rand"
-	"crypto/rsa"
-	"crypto/sha256"
-	"crypto/x509"
-	"encoding/base64"
-	"encoding/json"
-	"encoding/pem"
 	"fmt"
-	xhash "hash"
-	"io"
 	"math/rand"
+	"net"
 	"net/http"
-	"os"
 	"runtime"
 	"time"
 
-	"github.com/nbvehbq/go-metrics-harvester/internal/hash"
 	"github.com/nbvehbq/go-metrics-harvester/internal/logger"
 	"github.com/nbvehbq/go-metrics-harvester/internal/metric"
-	"github.com/nbvehbq/go-metrics-harvester/pkg/retry"
 	"github.com/pkg/errors"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/mem"
@@ -31,28 +20,25 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+type HTTPClient interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
+type Publisher interface {
+	Publish(ctx context.Context, m []metric.Metric) error
+}
+
 // Agent is a metrics harvester agent
 type Agent struct {
-	cfg       *Config
-	runner    *errgroup.Group
-	client    http.Client
-	publicKey []byte
+	cfg    *Config
+	runner *errgroup.Group
+	client Publisher
+	// publicKey []byte
 }
 
 // NewAgent creates a new agent
-func NewAgent(r *errgroup.Group, cfg *Config, client http.Client) (*Agent, error) {
-	var (
-		buf []byte
-		err error
-	)
-	if cfg.CryptoKey != "" {
-		buf, err = os.ReadFile(cfg.CryptoKey)
-		if err != nil {
-			return nil, errors.Wrap(err, "open public key filename")
-		}
-	}
-
-	return &Agent{runner: r, cfg: cfg, client: client, publicKey: buf}, nil
+func NewAgent(r *errgroup.Group, cfg *Config, client Publisher) (*Agent, error) {
+	return &Agent{runner: r, cfg: cfg, client: client}, nil
 }
 
 // Run runs the agent
@@ -184,7 +170,7 @@ func requestMemoryMetrics(ctx context.Context, m *metric.Metrics) error {
 	return nil
 }
 
-func (a *Agent) publishMetrics(m *metric.Metrics) error {
+func (a *Agent) publishMetrics(ctx context.Context, m *metric.Metrics) error {
 	m.Mu.RLock()
 	defer func() {
 		m.Mu.RUnlock()
@@ -196,56 +182,7 @@ func (a *Agent) publishMetrics(m *metric.Metrics) error {
 		list = append(list, v)
 	}
 
-	buf, err := json.Marshal(list)
-	if err != nil {
-		return errors.Wrap(err, "marshal")
-	}
-
-	if a.publicKey != nil {
-		publicKeyBlock, _ := pem.Decode(a.publicKey)
-		publicKey, err := x509.ParsePKIXPublicKey(publicKeyBlock.Bytes)
-		if err != nil {
-			return errors.Wrap(err, "parse public key")
-		}
-
-		buf, err = encryptOAEP(sha256.New(), crand.Reader, publicKey.(*rsa.PublicKey), buf, nil)
-		if err != nil {
-			return errors.Wrap(err, "encrypt body")
-		}
-	}
-
-	buf, err = compress(buf)
-	if err != nil {
-		return errors.Wrap(err, "compress")
-	}
-
-	err = retry.Do(func() (err error) {
-		req, err := http.NewRequest(
-			"POST",
-			fmt.Sprintf("%s/updates/", a.cfg.Address),
-			bytes.NewReader(buf))
-		if err != nil {
-			return errors.Wrap(err, "new request")
-		}
-
-		req.Header.Add("Content-Type", "application/json")
-		req.Header.Add("Accept-Encoding", "gzip")
-		req.Header.Add("Content-Encoding", "gzip")
-
-		if a.cfg.Key != "" {
-			sign := hash.Hash([]byte(a.cfg.Key), buf)
-			req.Header.Add(hash.HashHeaderKey, base64.StdEncoding.EncodeToString(sign))
-		}
-
-		res, err := a.client.Do(req)
-		if err != nil {
-			return errors.Wrap(err, "send request")
-		}
-		defer res.Body.Close()
-
-		return
-	})
-
+	err := a.client.Publish(ctx, list)
 	if err != nil {
 		return errors.Wrap(err, "client post")
 	}
@@ -279,30 +216,46 @@ func (a *Agent) worker(ctx context.Context, jobs <-chan *metric.Metrics, results
 			if !ok {
 				return nil
 			}
-			results <- a.publishMetrics(job)
+			results <- a.publishMetrics(ctx, job)
 			return nil
 		}
 	}
 }
 
-func encryptOAEP(hash xhash.Hash, random io.Reader, public *rsa.PublicKey, msg []byte, label []byte) ([]byte, error) {
-	msgLen := len(msg)
-	step := public.Size() - 2*hash.Size() - 2
-	var encryptedBytes []byte
-
-	for start := 0; start < msgLen; start += step {
-		finish := start + step
-		if finish > msgLen {
-			finish = msgLen
+func realIP() (string, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return "", err
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue // interface down
 		}
-
-		encryptedBlockBytes, err := rsa.EncryptOAEP(hash, random, public, msg[start:finish], label)
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue // loopback interface
+		}
+		addrs, err := iface.Addrs()
 		if err != nil {
-			return nil, err
+			return "", err
 		}
-
-		encryptedBytes = append(encryptedBytes, encryptedBlockBytes...)
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+			ip = ip.To4()
+			if ip == nil {
+				continue // not an ipv4 address
+			}
+			return ip.String(), nil
+		}
 	}
 
-	return encryptedBytes, nil
+	return "127.0.0.1", nil
 }

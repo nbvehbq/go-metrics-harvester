@@ -1,18 +1,10 @@
 package server
 
 import (
-	"bytes"
-	"context"
-	"crypto/rsa"
-	"crypto/sha256"
-	"crypto/x509"
 	"encoding/json"
-	"encoding/pem"
+	"errors"
 	"fmt"
-	"hash"
-	"io"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 
@@ -25,7 +17,7 @@ import (
 func (s *Server) pingDBHandler(res http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
 
-	if err := s.storage.Ping(ctx); err != nil {
+	if err := s.service.Ping(ctx); err != nil {
 		http.Error(res, "", http.StatusInternalServerError)
 		return
 	}
@@ -51,7 +43,7 @@ func (s *Server) listMetricHandler(res http.ResponseWriter, req *http.Request) {
 	`
 
 	ctx := req.Context()
-	list, err := s.storage.List(ctx)
+	list, err := s.service.List(ctx)
 	if err != nil {
 		http.Error(res, "", http.StatusInternalServerError)
 		return
@@ -88,13 +80,8 @@ func (s *Server) getMetricHandlerJSON(res http.ResponseWriter, req *http.Request
 		return
 	}
 
-	value, ok := s.storage.Get(ctx, m.ID)
-	if !ok {
-		JSONError(res, "not found", http.StatusNotFound)
-		return
-	}
-
-	if value.MType != m.MType {
+	value, err := s.service.Get(ctx, m.ID, m.MType)
+	if err != nil {
 		JSONError(res, "not found", http.StatusNotFound)
 		return
 	}
@@ -117,27 +104,21 @@ func (s *Server) updateHandlerJSON(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	//check metric name
-	if m.ID == "" {
-		JSONError(res, "not found", http.StatusNotFound)
+	if err := s.service.Set(ctx, m); err != nil {
+		switch {
+		case errors.Is(err, metric.ErrMetricNotFound):
+			JSONError(res, err.Error(), http.StatusNotFound)
+		case errors.Is(err, metric.ErrMetricBadType):
+			JSONError(res, err.Error(), http.StatusBadRequest)
+		default:
+			JSONError(res, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
-
-	// check metric type
-	_, ok := metric.AllowedMetricType[m.MType]
-	if !ok {
-		JSONError(res, "bad request (type)", http.StatusBadRequest)
-		return
-	}
-
-	if err := s.storage.Set(ctx, m); err != nil {
-		JSONError(res, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	updated, _ := s.storage.Get(ctx, m.ID)
+	updated, _ := s.service.Get(ctx, m.ID, m.MType)
 
 	if s.storeInterval == 0 {
-		go s.saveToFile(ctx)
+		go s.service.SaveToFile(ctx, s.fileStoragePath)
 	}
 
 	res.Header().Set("Content-Type", "application/json")
@@ -160,8 +141,8 @@ func (s *Server) getMetricHandler(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	m, ok := s.storage.Get(ctx, mname)
-	if !ok {
+	m, err := s.service.Get(ctx, mname, mtype)
+	if err != nil {
 		http.Error(res, "not found", http.StatusNotFound)
 		return
 	}
@@ -212,7 +193,7 @@ func (s *Server) updateHandler(res http.ResponseWriter, req *http.Request) {
 		m.Value = &value
 	}
 
-	if err := s.storage.Set(ctx, m); err != nil {
+	if err := s.service.Set(ctx, m); err != nil {
 		http.Error(res, "", http.StatusInternalServerError)
 		return
 	}
@@ -222,28 +203,6 @@ func (s *Server) updateHandler(res http.ResponseWriter, req *http.Request) {
 }
 
 func (s *Server) updatesHandlerJSON(res http.ResponseWriter, req *http.Request) {
-	if s.secretKey != nil {
-		privateKeyBlock, _ := pem.Decode(s.secretKey)
-		privateKey, err := x509.ParsePKCS1PrivateKey(privateKeyBlock.Bytes)
-		if err != nil {
-			JSONError(res, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		body, err := io.ReadAll(req.Body)
-		if err != nil {
-			http.Error(res, "can't read body", http.StatusBadRequest)
-			return
-		}
-
-		plaintBody, err := decryptOAEP(sha256.New(), nil, privateKey, body, nil)
-		if err != nil {
-			JSONError(res, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		req.Body = io.NopCloser(bytes.NewBuffer(plaintBody))
-	}
 
 	var me []metric.Metric
 	if err := json.NewDecoder(req.Body).Decode(&me); err != nil {
@@ -267,7 +226,7 @@ func (s *Server) updatesHandlerJSON(res http.ResponseWriter, req *http.Request) 
 	}
 
 	ctx := req.Context()
-	if err := s.storage.Update(ctx, me); err != nil {
+	if err := s.service.Update(ctx, me); err != nil {
 		logger.Log.Error("update", zap.Error(err))
 		JSONError(res, err.Error(), http.StatusBadRequest)
 		return
@@ -275,19 +234,6 @@ func (s *Server) updatesHandlerJSON(res http.ResponseWriter, req *http.Request) 
 
 	res.Header().Set("Content-Type", "application/json")
 	res.WriteHeader(http.StatusOK)
-}
-
-func (s *Server) saveToFile(ctx context.Context) (err error) {
-	file, err := os.OpenFile(s.fileStoragePath, os.O_WRONLY|os.O_CREATE, 0666)
-	if err != nil {
-		return err
-	}
-
-	if err := s.storage.Persist(ctx, file); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // JSONError sends an error message in JSON format
@@ -298,26 +244,4 @@ func JSONError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(res)
-}
-
-func decryptOAEP(hash hash.Hash, random io.Reader, private *rsa.PrivateKey, msg []byte, label []byte) ([]byte, error) {
-	msgLen := len(msg)
-	step := private.PublicKey.Size()
-	var decryptedBytes []byte
-
-	for start := 0; start < msgLen; start += step {
-		finish := start + step
-		if finish > msgLen {
-			finish = msgLen
-		}
-
-		decryptedBlockBytes, err := rsa.DecryptOAEP(hash, random, private, msg[start:finish], label)
-		if err != nil {
-			return nil, err
-		}
-
-		decryptedBytes = append(decryptedBytes, decryptedBlockBytes...)
-	}
-
-	return decryptedBytes, nil
 }
